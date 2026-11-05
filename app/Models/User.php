@@ -2,31 +2,85 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\Crypto\BlindIndex;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password'])]
-#[Hidden(['password', 'remember_token'])]
+/**
+ * アカウント。パスワードは持たない(ADR-0008)。
+ * メールアドレスと表示名は暗号化して保存し、照合には email_index を使う(ADR-0003)。
+ *
+ * @property int $id
+ * @property string $email
+ * @property string $email_index
+ * @property string|null $display_name
+ */
+#[Fillable(['email', 'display_name'])]
+#[Hidden(['email', 'email_index', 'display_name'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory;
+
+    /** パスワードも remember_token も持たないため、無効にする */
+    protected $rememberTokenName = '';
+
+    protected static function booted(): void
+    {
+        static::saving(function (User $user): void {
+            if ($user->isDirty('email') || ! $user->exists) {
+                $user->email_index = app(BlindIndex::class)->email($user->email);
+            }
+        });
+    }
 
     /**
-     * Get the attributes that should be cast.
-     *
      * @return array<string, string>
      */
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'email' => 'encrypted',
+            'display_name' => 'encrypted',
         ];
+    }
+
+    /**
+     * @param  Builder<User>  $query
+     */
+    public function scopeWhereEmail(Builder $query, string $email): void
+    {
+        $query->where('email_index', app(BlindIndex::class)->email($email));
+    }
+
+    public function hasCompletedRegistration(): bool
+    {
+        return $this->display_name !== null;
+    }
+
+    /**
+     * @return BelongsToMany<Team, $this, TeamMembership, 'membership'>
+     */
+    public function teams(): BelongsToMany
+    {
+        return $this->belongsToMany(Team::class, 'team_memberships')
+            ->using(TeamMembership::class)
+            ->as('membership')
+            ->withPivot('role')
+            ->withTimestamps();
+    }
+
+    /**
+     * @return HasMany<Team, $this>
+     */
+    public function createdTeams(): HasMany
+    {
+        return $this->hasMany(Team::class, 'created_by');
     }
 }

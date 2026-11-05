@@ -32,7 +32,7 @@ return [
     |
     */
 
-    'lifetime' => (int) env('SESSION_LIFETIME', 120),
+    'lifetime' => (int) env('SESSION_LIFETIME', 43200), // 最後の操作から30日(AC-001-07)
 
     'expire_on_close' => env('SESSION_EXPIRE_ON_CLOSE', false),
 

@@ -2,24 +2,26 @@
 
 namespace Database\Seeders;
 
+use App\Models\Team;
 use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
-    use WithoutModelEvents;
-
     /**
-     * Seed the application's database.
+     * ローカル開発用のデータ。宛先は .invalid ドメインだけを使う。
+     * email_index はモデルのイベントで作るため、WithoutModelEvents は使わない。
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        $user = User::create([
+            'email' => 'coach@example.invalid',
+            'display_name' => 'テスト 代表',
+        ]);
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        Team::factory()->withRepresentative()->create([
+            'name' => 'つくばFC U-10',
+            'created_by' => $user->id,
         ]);
     }
 }
