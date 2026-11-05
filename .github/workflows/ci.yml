@@ -23,6 +23,13 @@ jobs:
       - run: vendor/bin/pint --test
       - run: vendor/bin/phpstan analyse --memory-limit=1G
 
+  openapi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The responses themselves are checked against this file by tests/Contract
+      - run: npx -y @redocly/cli@2.76.0 lint openapi/openapi.yaml
+
   test:
     runs-on: ubuntu-latest
     services:

@@ -14,6 +14,27 @@ return [
     'demo_mode' => (bool) env('DEMO_MODE', false),
 
     /*
+    | Web 画面の URL。メールに書くリンク(ログイン、メール変更の確認)の先頭に使う。
+    */
+    /*
+    | 信頼するプロキシ(Vite・nginx)のアドレスか範囲。カンマ区切り。回数制限で利用者ごとのIPを
+    | 正しく数えるために使う。ここにないアドレスから届いた X-Forwarded-For は使わない。
+    | 本番では nginx のアドレスだけを書き、nginx は X-Forwarded-For を $remote_addr で上書きする。
+    */
+    'trusted_proxies' => array_values(array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', ''))))),
+
+    'web_url' => rtrim((string) env('WEB_URL', 'http://localhost:5173'), '/'),
+
+    /*
+    | ログイン用・メール変更用のリンクの有効期間(分)と、1時間に要求できる回数(AC-001-03・05)。
+    */
+    'login_link' => [
+        'ttl_minutes' => 15,
+        'per_hour_per_email' => 5,
+        'per_hour_per_ip' => 30,
+    ],
+
+    /*
     | notify-relay(メール配信)への接続(ADR-0002)。依頼には HMAC 署名を付ける。
     | secret は base64 で、notify-relay の RELAY_SIGNING_KEYS と同じ値にする。
     */

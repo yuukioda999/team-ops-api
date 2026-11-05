@@ -2,13 +2,20 @@
 
 namespace App\Providers;
 
+use App\Models\Team;
+use App\Models\User;
 use App\Support\Crypto\BlindIndex;
 use App\Support\NotifyRelay\EmailOutbox;
 use App\Support\NotifyRelay\RelayClient;
 use App\Support\Queue\RedactingFailedJobProvider;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Http\Request;
 use Illuminate\Queue\Failed\DatabaseUuidFailedJobProvider;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
 
@@ -59,5 +66,57 @@ class AppServiceProvider extends ServiceProvider
         // Cookie のセッションだけで認証する(ADR-0008)。APIトークンの表は持たないため、
         // Authorization: Bearer を付けたリクエストもトークンとしては扱わない
         Sanctum::getAccessTokenFromRequestUsing(fn () => null);
+
+        // 回数制限で利用者のIPを数えるため、信頼するプロキシだけから X-Forwarded-For を受け取る
+        TrustProxies::at((array) config('team_ops.trusted_proxies'));
+
+        $this->configureRateLimiting();
+        $this->bindTeamToMembership();
+    }
+
+    /**
+     * ルートの {team} は、ログイン中の利用者が所属するチームからだけ探す(ADR-0009)。
+     * 所属していないチームは、存在していても 404 にする(AC-000-01)。
+     * この処理を1か所にまとめ、各 Controller でチームの絞り込みを書かない。
+     */
+    private function bindTeamToMembership(): void
+    {
+        Route::bind('team', function (string $value): Team {
+            $user = request()->user();
+            if (! $user instanceof User || preg_match('/^[0-9A-HJKMNP-TV-Z]{26}$/i', $value) !== 1) {
+                abort(404);
+            }
+
+            // 所属しているチームだけを、そのチームでの役割(membership)付きで探す。HasUlids は小文字で保存する
+            return $user->teams()->whereKey(strtolower($value))->firstOrFail();
+        });
+    }
+
+    /**
+     * 回数制限。メールアドレスはハッシュ値をキーにする(キャッシュに平文を残さない)。
+     * 超えたら 429 を返し、メールは送らない(AC-001-05)。
+     */
+    private function configureRateLimiting(): void
+    {
+        $perEmail = (int) config('team_ops.login_link.per_hour_per_email');
+        $perIp = (int) config('team_ops.login_link.per_hour_per_ip');
+        $emailKey = function (Request $request, string $field): string {
+            $email = $request->input($field);
+
+            return is_string($email) && $email !== '' ? app(BlindIndex::class)->email($email) : 'none';
+        };
+
+        RateLimiter::for('login-link', fn (Request $request) => [
+            Limit::perHour($perEmail)->by('login-link:email:'.$emailKey($request, 'email')),
+            Limit::perHour($perIp)->by('login-link:ip:'.$request->ip()),
+        ]);
+
+        RateLimiter::for('email-change', fn (Request $request) => [
+            Limit::perHour($perEmail)->by('email-change:user:'.$request->user()?->getAuthIdentifier()),
+            Limit::perHour($perEmail)->by('email-change:email:'.$emailKey($request, 'new_email')),
+        ]);
+
+        // トークンの総当たりを防ぐ(トークンは256ビットなので、主に負荷の対策)
+        RateLimiter::for('token-consume', fn (Request $request) => Limit::perMinute(30)->by('token-consume:ip:'.$request->ip()));
     }
 }
