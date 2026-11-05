@@ -26,7 +26,11 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(
             RelayClient::class,
-            fn (Application $app) => RelayClient::fromConfig($app->make(HttpFactory::class), (array) config('team_ops.notify_relay')),
+            fn (Application $app) => RelayClient::fromConfig(
+                $app->make(HttpFactory::class),
+                (array) config('team_ops.notify_relay'),
+                (string) $app->environment(),
+            ),
         );
         $this->app->singleton(
             EmailOutbox::class,

@@ -26,10 +26,11 @@ final class RelayResult
         return match (true) {
             // 202:新しく受け付けた / 200:同じ依頼を受付済み(二重送信にならない)
             $status === 202, $status === 200 => new self('accepted', 'http_'.$status, $id),
-            // 一時的な失敗。アウトボックスに残したまま、あとで送り直す(ADR-0002)
-            $status === 429, $status === 503, $status >= 500 => new self('retry', 'http_'.$status),
+            // 一時的な失敗と、接続先URLの設定ミス(404)。アウトボックスに残して送り直す(ADR-0002)
+            $status === 404, $status === 429, $status >= 500 => new self('retry', 'http_'.$status),
             // 署名の鍵の設定ミスは、送り直しても直らない。記録して止める
             $status === 401 => new self('rejected', 'unauthorized'),
+            // 3xx:リダイレクトはたどらない(本文を別のホストに送らないため)
             // 409:同じ dedupe_key で内容が違う / 400・413・422:依頼の形が仕様に合わない
             default => new self('rejected', 'http_'.$status),
         };

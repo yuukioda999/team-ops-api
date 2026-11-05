@@ -10,6 +10,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use InvalidArgumentException;
+use LogicException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -38,7 +40,7 @@ class EmailOutboxTest extends TestCase
         );
     }
 
-    public function test_a_queued_email_is_stored_as_pending_with_the_relay_request(): void
+    public function test_ADR_0002_a_queued_email_is_stored_as_pending_with_the_relay_request(): void
     {
         Queue::fake();
 
@@ -47,14 +49,28 @@ class EmailOutboxTest extends TestCase
         $message->refresh();
         $this->assertSame(OutboxStatus::Pending, $message->status);
         $payload = $message->payload;
+        $this->assertIsArray($payload);
         $this->assertSame('login-link:1', $payload['dedupe_key']);
         $this->assertSame('system', $payload['tenant_ref']);
         $this->assertSame([['recipient_ref' => 'user_1', 'email' => 'coach@example.invalid']], $payload['recipients']);
-        $this->assertArrayHasKey('expires_at', $payload);
+        $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $payload['expires_at'], 'RFC 3339 date-time');
+        $this->assertEqualsWithDelta(now()->addMinutes(15)->timestamp, $message->give_up_at?->timestamp, 2, 'A mail with an expiry is retried only until then (D3)');
         Queue::assertPushed(DeliverOutboxMessage::class, fn ($job) => $job->outboxMessageId === $message->id);
     }
 
-    public function test_the_payload_is_encrypted_at_rest(): void
+    public function test_optional_fields_are_left_out_and_the_deadline_defaults_to_24_hours(): void
+    {
+        Queue::fake();
+
+        $message = $this->outbox()->queue('notice', 'notice-key-0001', '件名', '本文', ['user_1' => 'a@example.invalid']);
+
+        $payload = $message->refresh()->payload ?? [];
+        $this->assertArrayNotHasKey('expires_at', $payload);
+        $this->assertArrayNotHasKey('url', $payload['message']);
+        $this->assertEqualsWithDelta(now()->addDay()->timestamp, $message->give_up_at?->timestamp, 2);
+    }
+
+    public function test_AC_000_04_the_payload_is_encrypted_at_rest(): void
     {
         Queue::fake();
 
@@ -83,7 +99,7 @@ class EmailOutboxTest extends TestCase
         $this->assertSame(1, DB::table('jobs')->count());
     }
 
-    public function test_queuing_the_same_dedupe_key_twice_keeps_one_message(): void
+    public function test_ADR_0002_queuing_the_same_dedupe_key_twice_keeps_one_message(): void
     {
         Queue::fake();
 
@@ -93,6 +109,62 @@ class EmailOutboxTest extends TestCase
         $this->assertTrue($first->is($second));
         $this->assertSame(1, OutboxMessage::count());
         Queue::assertPushed(DeliverOutboxMessage::class, 1);
+    }
+
+    public function test_the_same_dedupe_key_with_different_content_is_refused(): void
+    {
+        Queue::fake();
+        $this->queueLoginLink($this->outbox());
+
+        $this->expectException(LogicException::class);
+        $this->queueLoginLink($this->outbox(), email: 'other@example.invalid');
+    }
+
+    /**
+     * @return array<string, array{array<string, mixed>}>
+     */
+    public static function invalidRequests(): array
+    {
+        return [
+            'dedupe key too short' => [['dedupeKey' => 'short']],
+            'dedupe key with spaces' => [['dedupeKey' => 'has spaces in it']],
+            'empty subject' => [['subject' => '']],
+            'subject with a line break' => [['subject' => "a\r\nBcc: x@example.invalid"]],
+            'subject over 200 characters' => [['subject' => str_repeat('あ', 201)]],
+            'empty text' => [['text' => '']],
+            'text over 2000 characters' => [['text' => str_repeat('あ', 2001)]],
+            'relative url' => [['url' => '/login']],
+            'no recipients' => [['recipients' => []]],
+            'more than 1000 recipients' => [['recipients' => array_fill_keys(array_map(fn ($i) => "r{$i}", range(1, 1001)), 'a@example.invalid')]],
+            'invalid address' => [['recipients' => ['user_1' => 'not-an-address']]],
+            'recipient ref over 64 characters' => [['recipients' => [str_repeat('r', 65) => 'a@example.invalid']]],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $override
+     */
+    #[DataProvider('invalidRequests')]
+    public function test_a_request_that_breaks_the_relay_contract_is_refused_before_commit(array $override): void
+    {
+        Queue::fake();
+        $args = $override + [
+            'kind' => 'login_link',
+            'dedupeKey' => 'login-link:1',
+            'subject' => '件名',
+            'text' => '本文',
+            'recipients' => ['user_1' => 'coach@example.invalid'],
+            'url' => null,
+        ];
+
+        try {
+            $this->outbox()->queue(...$args);
+            $this->fail('An invalid request was accepted');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringNotContainsString('coach@example.invalid', $e->getMessage());
+        }
+        $this->assertSame(0, OutboxMessage::count());
+        Queue::assertNothingPushed();
     }
 
     public function test_demo_mode_refuses_real_addresses_without_naming_them(): void
