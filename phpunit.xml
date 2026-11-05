@@ -23,6 +23,9 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BLIND_INDEX_KEY" value="base64:dGVzdC1ibGluZC1pbmRleC1rZXktMzItYnl0ZXMhISE="/>
         <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="NOTIFY_RELAY_URL" value="http://notify-relay.test"/>
+        <env name="NOTIFY_RELAY_KEY_ID" value="k-test"/>
+        <env name="NOTIFY_RELAY_SECRET" value="dGVzdC1yZWxheS1zaWduaW5nLWtleS0zMi1ieXRlcyE="/>
         <env name="CACHE_STORE" value="array"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
