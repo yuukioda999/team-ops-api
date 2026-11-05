@@ -15,6 +15,7 @@ CMD ["sh", "-c", "composer install && php artisan migrate --force && php artisan
 
 # Production: dependencies baked in, runs as a non-root user.
 FROM base AS prod
+RUN chown app:app /app
 COPY --chown=app:app . .
 USER app
 RUN composer install --no-dev --optimize-autoloader --no-interaction
