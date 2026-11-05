@@ -55,7 +55,7 @@ final class ConfirmEmailChange
 
             $this->outbox->queue(
                 kind: 'email_changed',
-                dedupeKey: 'email-changed:'.$token->id,
+                dedupeKey: $token->dedupeKey('email-changed'),
                 subject: '【チーム運営】メールアドレスが変更されました',
                 text: implode("\n", [
                     'アカウントのメールアドレスが変更されました。今後のお知らせは新しいメールアドレスに届きます。',
