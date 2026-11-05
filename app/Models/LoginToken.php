@@ -47,6 +47,16 @@ class LoginToken extends Model
         return hash('sha256', $plainToken);
     }
 
+    /**
+     * notify-relay の重複防止キー。行のIDだけだと、DBを作り直したとき(デモ環境のリセットなど)に
+     * 同じ値が別の依頼に使われ、notify-relay が 409 で拒否する。トークンのハッシュの先頭を加えて、
+     * 依頼ごとに一意にする(ハッシュの先頭からトークンは復元できない)。
+     */
+    public function dedupeKey(string $kind): string
+    {
+        return $kind.':'.$this->id.'-'.substr($this->token_hash, 0, 16);
+    }
+
     public function isUsable(): bool
     {
         return $this->used_at === null && $this->expires_at->isFuture();

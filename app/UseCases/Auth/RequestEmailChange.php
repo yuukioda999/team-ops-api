@@ -39,7 +39,7 @@ final class RequestEmailChange
             if ($owner !== null) {
                 $this->outbox->queue(
                     kind: 'email_change_unavailable',
-                    dedupeKey: 'email-change-unavailable:'.$token->id,
+                    dedupeKey: $token->dedupeKey('email-change-unavailable'),
                     subject: '【チーム運営】メールアドレスの変更について',
                     text: implode("\n", [
                         'このメールアドレスへの変更が申請されましたが、すでに別のアカウントで使われているため変更できません。',
@@ -55,7 +55,7 @@ final class RequestEmailChange
 
             $this->outbox->queue(
                 kind: 'email_change',
-                dedupeKey: 'email-change:'.$token->id,
+                dedupeKey: $token->dedupeKey('email-change'),
                 subject: '【チーム運営】メールアドレスの確認',
                 text: implode("\n", [
                     'メールアドレスの変更を確定するには、次のリンクを開き、表示された画面で「変更する」を押してください。',
