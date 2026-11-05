@@ -19,6 +19,7 @@ class BlindIndexTest extends TestCase
         return [
             'upper case' => ['Coach@Example.invalid', 'coach@example.invalid'],
             'surrounding spaces' => ['  coach@example.invalid ', 'coach@example.invalid'],
+            'full-width characters' => ['ｃｏａｃｈ＠ｅｘａｍｐｌｅ．ｉｎｖａｌｉｄ', 'coach@example.invalid'],
         ];
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Support\Crypto;
 
+use Normalizer;
 use RuntimeException;
 
 /**
@@ -39,8 +40,13 @@ final class BlindIndex
         return hash_hmac('sha256', 'email:'.self::normalizeEmail($email), $this->key);
     }
 
+    /**
+     * 同じアドレスの書き方の違い(全角・大文字・前後の空白)をそろえる。
+     */
     public static function normalizeEmail(string $email): string
     {
-        return mb_strtolower(trim($email));
+        $normalized = Normalizer::normalize($email, Normalizer::FORM_KC);
+
+        return mb_strtolower(trim($normalized === false ? $email : $normalized));
     }
 }

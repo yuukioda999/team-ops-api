@@ -42,15 +42,17 @@ final class ApiErrorResponse
         }
 
         return match (true) {
-            $e instanceof ValidationException => self::make(422, ['errors' => $e->errors()]),
+            $e instanceof ValidationException => self::make($e->status, ['errors' => $e->errors()]),
             $e instanceof AuthenticationException => self::make(401),
-            $e instanceof AuthorizationException => self::make(403),
+            // Policy で denyAsNotFound() にした場合は 404 にし、データの存在を推測させない(AC-000-01)
+            $e instanceof AuthorizationException => self::make($e->hasStatus() ? (int) $e->status() : 403),
             $e instanceof RecordsNotFoundException => self::make(404),
             $e instanceof TokenMismatchException => self::make(419),
             $e instanceof ThrottleRequestsException => self::make(429, [], $e->getHeaders()),
             $e instanceof HttpExceptionInterface => self::make($e->getStatusCode(), [], $e->getHeaders()),
-            // 開発中は原因を見たいので、Laravel 標準の表示(トレース付き)に任せる
-            (bool) config('app.debug') => null,
+            // ローカルの開発中だけ、原因を見るために Laravel 標準の表示(トレース付き)に任せる。
+            // デモ環境などで APP_DEBUG を消し忘れても、例外の中身は返さない
+            (bool) config('app.debug') && app()->isLocal() => null,
             default => self::make(500),
         };
     }

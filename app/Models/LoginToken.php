@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use App\Enums\LoginTokenPurpose;
-use App\Support\Crypto\BlindIndex;
+use App\Models\Concerns\HasEmailBlindIndex;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Model;
@@ -27,14 +27,7 @@ use Illuminate\Support\Carbon;
 #[Hidden(['email', 'email_index', 'token_hash'])]
 class LoginToken extends Model
 {
-    protected static function booted(): void
-    {
-        static::saving(function (LoginToken $token): void {
-            if ($token->isDirty('email') || ! $token->exists) {
-                $token->email_index = app(BlindIndex::class)->email($token->email);
-            }
-        });
-    }
+    use HasEmailBlindIndex;
 
     /**
      * @return array<string, string>

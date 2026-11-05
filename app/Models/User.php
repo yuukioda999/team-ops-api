@@ -2,11 +2,10 @@
 
 namespace App\Models;
 
-use App\Support\Crypto\BlindIndex;
+use App\Models\Concerns\HasEmailBlindIndex;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -26,19 +25,13 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory;
+    use HasEmailBlindIndex, HasFactory;
 
-    /** パスワードも remember_token も持たないため、無効にする */
+    /**
+     * パスワードも remember_token も持たないため、無効にする。
+     * 「ログイン状態を保持する」(Auth::login($user, true))は使わない。セッションの30日で足りる(ADR-0008)。
+     */
     protected $rememberTokenName = '';
-
-    protected static function booted(): void
-    {
-        static::saving(function (User $user): void {
-            if ($user->isDirty('email') || ! $user->exists) {
-                $user->email_index = app(BlindIndex::class)->email($user->email);
-            }
-        });
-    }
 
     /**
      * @return array<string, string>
@@ -49,14 +42,6 @@ class User extends Authenticatable
             'email' => 'encrypted',
             'display_name' => 'encrypted',
         ];
-    }
-
-    /**
-     * @param  Builder<User>  $query
-     */
-    public function scopeWhereEmail(Builder $query, string $email): void
-    {
-        $query->where('email_index', app(BlindIndex::class)->email($email));
     }
 
     public function hasCompletedRegistration(): bool

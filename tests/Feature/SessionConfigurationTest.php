@@ -21,6 +21,39 @@ class SessionConfigurationTest extends TestCase
         $this->assertSame('lax', config('session.same_site'));
     }
 
+    public function test_session_contents_are_encrypted(): void
+    {
+        $this->assertTrue((bool) config('session.encrypt'));
+    }
+
+    public function test_session_cookies_are_https_only_outside_local_development(): void
+    {
+        $this->assertTrue($this->sessionConfigFor('production')['secure']);
+        $this->assertFalse($this->sessionConfigFor('local')['secure']);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function sessionConfigFor(string $appEnv): array
+    {
+        $original = [$_SERVER['APP_ENV'] ?? null, $_ENV['APP_ENV'] ?? null, getenv('APP_ENV')];
+        $_SERVER['APP_ENV'] = $_ENV['APP_ENV'] = $appEnv;
+        putenv("APP_ENV={$appEnv}");
+
+        try {
+            /** @var array<string, mixed> $config */
+            $config = require config_path('session.php');
+
+            return $config;
+        } finally {
+            [$server, $env, $putenv] = $original;
+            $_SERVER['APP_ENV'] = $server;
+            $_ENV['APP_ENV'] = $env;
+            putenv($putenv === false ? 'APP_ENV' : "APP_ENV={$putenv}");
+        }
+    }
+
     public function test_the_web_dev_server_is_treated_as_a_first_party_origin(): void
     {
         $this->assertContains('localhost:5173', config('sanctum.stateful'));

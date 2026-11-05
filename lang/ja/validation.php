@@ -27,7 +27,5 @@ return [
         'new_email' => '新しいメールアドレス',
         'display_name' => '表示名',
         'token' => 'リンク',
-        'name' => 'チーム名',
-        'sport' => '競技',
     ],
 ];

@@ -10,33 +10,44 @@ use Throwable;
  * ログに個人情報を出さないための加工処理(AC-000-04)。
  *
  * - 個人情報やトークンを表す項目名の値は、中身を問わず伏せる
- * - メッセージや値の中のメールアドレスは伏せる
+ * - メッセージや値の中のメールアドレスと、URLのクエリに入ったトークンは伏せる
+ * - 表示名は形で見分けられないため、項目名で伏せる。例外のメッセージに表示名を入れないこと
  * - 例外は、引数やリクエストの中身を含まない形(クラス・メッセージ・発生箇所)に変える
  */
 final class RedactPersonalData implements ProcessorInterface
 {
     public const string MASK = '[redacted]';
 
-    private const string EMAIL_PATTERN = '/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/u';
+    /** メールアドレス。URLエンコードされた形(%40)も含む */
+    private const string EMAIL_PATTERN = '/[A-Za-z0-9._%+\-]+(?:@|%40)[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/iu';
 
-    /** @var list<string> */
-    private const array SENSITIVE_KEYS = [
+    /** URLのクエリに入ったトークン(ログイン用リンクなど) */
+    private const string TOKEN_QUERY_PATTERN = '/([?&](?:token|signature)=)[^&\s"\']+/i';
+
+    /**
+     * 項目名にこれらを含めば、値を中身を問わず伏せる。
+     * 項目名は小文字にし、_ と - を除いてから比べる(user_email、displayName、login-token など)。
+     *
+     * @var list<string>
+     */
+    private const array SENSITIVE_KEY_PARTS = [
         'email',
-        'new_email',
-        'old_email',
-        'display_name',
-        'name',
+        'displayname',
         'token',
         'password',
-        'payload',
-        'recipients',
-        'to',
-        'body',
-        'subject',
+        'secret',
         'authorization',
         'cookie',
-        'x-xsrf-token',
+        'payload',
+        'recipient',
     ];
+
+    /**
+     * 短く汎用的な名前のため、完全に一致したときだけ伏せる。
+     *
+     * @var list<string>
+     */
+    private const array SENSITIVE_KEYS_EXACT = ['to', 'body', 'subject'];
 
     public function __invoke(LogRecord $record): LogRecord
     {
@@ -49,7 +60,26 @@ final class RedactPersonalData implements ProcessorInterface
 
     public static function redactString(string $value): string
     {
+        $value = (string) preg_replace(self::TOKEN_QUERY_PATTERN, '$1'.self::MASK, $value);
+
         return (string) preg_replace(self::EMAIL_PATTERN, self::MASK, $value);
+    }
+
+    public static function isSensitiveKey(string $key): bool
+    {
+        $normalized = str_replace(['_', '-'], '', strtolower($key));
+
+        if (in_array($normalized, self::SENSITIVE_KEYS_EXACT, true)) {
+            return true;
+        }
+
+        foreach (self::SENSITIVE_KEY_PARTS as $part) {
+            if (str_contains($normalized, $part)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -60,7 +90,7 @@ final class RedactPersonalData implements ProcessorInterface
     {
         $result = [];
         foreach ($values as $key => $value) {
-            if (is_string($key) && in_array(strtolower($key), self::SENSITIVE_KEYS, true)) {
+            if (is_string($key) && self::isSensitiveKey($key)) {
                 $result[$key] = self::MASK;
 
                 continue;
