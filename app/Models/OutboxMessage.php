@@ -14,14 +14,15 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $kind
  * @property string $dedupe_key
- * @property array<string, mixed> $payload
+ * @property array<string, mixed>|null $payload 送信済み・失敗で消す
  * @property OutboxStatus $status
  * @property int $attempts
  * @property Carbon|null $next_attempt_at
+ * @property Carbon|null $give_up_at
  * @property Carbon|null $sent_at
  * @property string|null $last_error
  */
-#[Fillable(['kind', 'dedupe_key', 'payload', 'status', 'next_attempt_at'])]
+#[Fillable(['kind', 'dedupe_key', 'payload', 'status', 'next_attempt_at', 'give_up_at'])]
 #[Hidden(['payload'])]
 class OutboxMessage extends Model
 {
@@ -40,6 +41,7 @@ class OutboxMessage extends Model
             'status' => OutboxStatus::class,
             'attempts' => 'integer',
             'next_attempt_at' => 'datetime',
+            'give_up_at' => 'datetime',
             'sent_at' => 'datetime',
         ];
     }
