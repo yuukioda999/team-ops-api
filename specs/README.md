@@ -11,8 +11,9 @@
 | 004 | 役割と権限 | [004-roles-and-permissions/spec.md](004-roles-and-permissions/spec.md) |
 | 005 | お知らせ | [005-notice/spec.md](005-notice/spec.md) |
 | 006 | 既読・配信状況・再通知 | [006-read-and-delivery-status/spec.md](006-read-and-delivery-status/spec.md) |
+| 007 | デモモード | [007-demo-mode/spec.md](007-demo-mode/spec.md) |
 
-第1弾には、このほかにデモモードと notify-relay(Go)の仕様が必要。上の6機能のレビュー後に作成する。
+notify-relay(Go)側の仕様は [notify-relay の specs/](https://github.com/yuukioda999/notify-relay/tree/main/specs) にある。
 
 ## 受け入れ基準の書き方
 
