@@ -116,7 +116,7 @@ APIとの型は、team-ops-api のOpenAPIから自動生成し、手書きしな
 | コマンド | 内容 |
 |---|---|
 | `make up` | 全サービスを起動し、デモデータを投入 |
-| `make demo-reset` | デモデータを初期状態に戻す(デモ環境の毎晩リセットと同じ処理) |
+| `make demo-reset` | すべてのデモチームを削除し、見本チームを作り直す(デモ環境の毎晩の掃除と同じ処理) |
 | `make test` | 3リポジトリのテストを実行 |
 | `make loadtest` | k6で負荷試験を実行し、結果を loadtest/results/ に保存 |
 | `make chaos-smtp` | MailpitにSMTPエラーを一定の確率で返させる(再送の確認、障害訓練) |
