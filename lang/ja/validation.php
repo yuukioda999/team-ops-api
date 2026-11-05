@@ -15,6 +15,7 @@ return [
     'max' => [
         'string' => ':attributeは:max文字以内で入力してください。',
     ],
+    'not_regex' => ':attributeに使えない文字(改行など)が含まれています。',
     'min' => [
         'string' => ':attributeは:min文字以上で入力してください。',
     ],

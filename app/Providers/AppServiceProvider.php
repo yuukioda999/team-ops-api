@@ -11,6 +11,7 @@ use App\Support\Queue\RedactingFailedJobProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Failed\DatabaseUuidFailedJobProvider;
 use Illuminate\Support\Facades\RateLimiter;
@@ -66,6 +67,9 @@ class AppServiceProvider extends ServiceProvider
         // Authorization: Bearer を付けたリクエストもトークンとしては扱わない
         Sanctum::getAccessTokenFromRequestUsing(fn () => null);
 
+        // 回数制限で利用者のIPを数えるため、信頼するプロキシだけから X-Forwarded-For を受け取る
+        TrustProxies::at((array) config('team_ops.trusted_proxies'));
+
         $this->configureRateLimiting();
         $this->bindTeamToMembership();
     }
@@ -83,9 +87,8 @@ class AppServiceProvider extends ServiceProvider
                 abort(404);
             }
 
-            return Team::whereKey(strtolower($value)) // HasUlids は小文字で保存する
-                ->whereHas('members', fn ($q) => $q->whereKey($user->id))
-                ->firstOrFail();
+            // 所属しているチームだけを、そのチームでの役割(membership)付きで探す。HasUlids は小文字で保存する
+            return $user->teams()->whereKey(strtolower($value))->firstOrFail();
         });
     }
 

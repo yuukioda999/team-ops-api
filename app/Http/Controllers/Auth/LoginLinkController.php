@@ -29,6 +29,12 @@ final class LoginLinkController extends Controller
      */
     public function consume(ConsumeTokenRequest $request, ConsumeLoginLink $consumeLoginLink): JsonResponse
     {
+        // Web と同じオリジンからでない(セッションがない)呼び出しでは、トークンを使い切る前に断る。
+        // そうしないと、ログインできないのにリンクだけが使用済みになる
+        if (! $request->hasSession()) {
+            return new JsonResponse(['message' => ApiErrorResponse::message(419)], 419);
+        }
+
         $user = $consumeLoginLink($request->token());
         if ($user === null) {
             return new JsonResponse(['message' => ApiErrorResponse::message(410)], 410);

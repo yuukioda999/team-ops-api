@@ -16,6 +16,9 @@ final class CreateTeam
 {
     public const int MAX_TEAMS_PER_REPRESENTATIVE = 5;
 
+    /**
+     * @return Team 作成者の役割(membership)付きのチーム
+     */
     public function __invoke(User $creator, string $name, Sport $sport): Team
     {
         return DB::transaction(function () use ($creator, $name, $sport): Team {
@@ -31,7 +34,7 @@ final class CreateTeam
             $team = Team::create(['name' => $name, 'sport' => $sport, 'created_by' => $creator->id]);
             $team->members()->attach($creator->id, ['role' => TeamRole::Representative]);
 
-            return $team;
+            return $creator->teams()->whereKey($team->id)->firstOrFail();
         });
     }
 }

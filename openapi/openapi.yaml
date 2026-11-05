@@ -78,6 +78,7 @@ paths:
       summary: メールのリンクでログインする
       description: |
         リンクは15分で失効し、1回だけ使えます(AC-001-03・04)。
+        Web と同じオリジンからでない呼び出し(セッションがない)は 419 になり、リンクは使用済みになりません。
         未登録のメールアドレスなら、このときアカウントを作ります。`needs_display_name` が true なら表示名の入力画面に進みます。
       security: []
       requestBody:
@@ -162,6 +163,7 @@ paths:
       summary: メールアドレスの変更を申請する
       description: |
         新しいアドレスに確認メールを送ります。リンクを開くまでは旧アドレスのままです(AC-001-09)。
+        前の申請のリンクは、この時点で使えなくなります。今と同じアドレスは 422(`errors.new_email`)です。
         新しいアドレスが別のアカウントで使われていても同じ応答を返し、そのアドレスには変更できない旨だけを知らせます。
       requestBody:
         required: true
@@ -191,9 +193,9 @@ paths:
       operationId: confirmEmailChange
       summary: 確認メールのリンクでメールアドレスの変更を確定する
       description: |
-        変更すると、旧アドレスに「メールアドレスが変更されました」と知らせます(AC-001-10)。
-        別の端末で開いても確定できるよう、ログインは必須ではありません(リンクが本人の確認になる)。
-      security: []
+        申請した本人がログインしているときだけ確定できます(新しいアドレスを打ち間違えても、その宛先の持ち主に乗っ取られないため)。
+        他人の申請のリンクは、期限切れと同じ 410 になり、使用済みにもなりません。
+        変更すると、旧アドレスに「メールアドレスが変更されました」と知らせ、この端末以外のセッションと、まだ使われていない旧アドレス宛てのリンクを無効にします(AC-001-10)。
       requestBody:
         required: true
         content:
@@ -213,19 +215,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
         '410':
           $ref: '#/components/responses/LinkExpired'
         '419':
           $ref: '#/components/responses/CsrfExpired'
         '422':
           $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /api/teams:
     post:
       tags: [teams]
       operationId: createTeam
       summary: チームを作成する
-      description: 作成者がそのチームの代表になります。1人が代表として作成できるのは5チームまでです(AC-001-11・12)。
+      description: |
+        作成者がそのチームの代表になります。1人が代表として作成できるのは5チームまでです(AC-001-11・12)。
+        上限を超えたときは 422 で、理由は `errors.team` に入ります。
       requestBody:
         required: true
         content:
@@ -316,6 +324,7 @@ components:
           type: string
           format: email
           maxLength: 254
+          description: 半角(ASCII)のアドレスだけ。前後の空白は除き、小文字にそろえて扱う
 
     NewEmailInput:
       type: object
@@ -325,6 +334,7 @@ components:
           type: string
           format: email
           maxLength: 254
+          description: 半角(ASCII)のアドレスだけ。前後の空白は除き、小文字にそろえて扱う
 
     TokenInput:
       type: object
@@ -343,7 +353,7 @@ components:
           type: string
           minLength: 1
           maxLength: 30
-          description: 前後の空白は取り除く
+          description: 前後の空白(全角を含む)は取り除く。改行などの制御文字は使えない
 
     CreateTeamInput:
       type: object
@@ -353,6 +363,7 @@ components:
           type: string
           minLength: 1
           maxLength: 50
+          description: 前後の空白(全角を含む)は取り除く。改行などの制御文字は使えない
         sport:
           $ref: '#/components/schemas/Sport'
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Support\Text\SingleLineText;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class UpdateMeRequest extends FormRequest
@@ -9,7 +10,7 @@ final class UpdateMeRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('display_name'))) {
-            $this->merge(['display_name' => trim($this->input('display_name'))]);
+            $this->merge(['display_name' => SingleLineText::trim($this->input('display_name'))]);
         }
     }
 
@@ -19,7 +20,7 @@ final class UpdateMeRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'display_name' => ['required', 'string', 'between:1,30'],
+            'display_name' => ['required', 'string', 'between:1,30', 'not_regex:'.SingleLineText::FORBIDDEN_PATTERN],
         ];
     }
 

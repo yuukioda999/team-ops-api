@@ -91,6 +91,20 @@ class OpenApiContractTest extends AuthTestCase
         $this->check('GET', '/api/teams/{team}', $this->getJson("/api/teams/{$other->id}"));
     }
 
+    public function test_rate_limited_token_endpoints_match_the_contract(): void
+    {
+        $this->logIn('coach@example.invalid');
+        foreach (['/api/auth/login-links/consume', '/api/me/email-changes/consume'] as $path) {
+            foreach (range(1, 30) as $i) {
+                $this->postJson($path, ['token' => str_repeat('a', 64)]);
+            }
+            $response = $this->postJson($path, ['token' => str_repeat('a', 64)]);
+            $this->assertSame(429, $response->getStatusCode(), $path);
+            $this->check('POST', $path, $response);
+            $this->travel(2)->minutes();
+        }
+    }
+
     public function test_rate_limited_responses_match_the_contract(): void
     {
         foreach (range(1, 6) as $i) {

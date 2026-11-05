@@ -87,7 +87,7 @@ class LoginSessionTest extends AuthTestCase
         $this->postJson('/api/auth/login-links/consume', ['token' => $token])->assertStatus(410);
     }
 
-    public function test_the_session_id_changes_at_login(): void
+    public function test_ADR_0008_the_session_id_changes_at_login(): void
     {
         $before = $this->getJson('/api/sanctum/csrf-cookie');
         $this->keepSession($before);
@@ -97,6 +97,28 @@ class LoginSessionTest extends AuthTestCase
 
         $name = (string) config('session.cookie');
         $this->assertNotSame($before->getCookie($name)?->getValue(), $after->getCookie($name)?->getValue());
+    }
+
+    public function test_ADR_0008_a_call_without_a_session_is_refused_before_the_link_is_used(): void
+    {
+        $token = $this->requestLinkAndGetToken('coach@example.invalid');
+
+        $this->flushHeaders(); // Web と同じオリジンからでない(Sanctum がセッションを付けない)
+        $this->postJson('/api/auth/login-links/consume', ['token' => $token])->assertStatus(419);
+
+        $this->withHeaders(['Origin' => 'http://localhost:5173']);
+        $this->postJson('/api/auth/login-links/consume', ['token' => $token])->assertOk();
+    }
+
+    public function test_AC_001_03_two_links_for_the_same_new_address_create_one_account(): void
+    {
+        $first = $this->requestLinkAndGetToken('new@example.invalid');
+        $second = $this->requestLinkAndGetToken('new@example.invalid');
+
+        $this->postJson('/api/auth/login-links/consume', ['token' => $first])->assertOk();
+        $this->postJson('/api/auth/login-links/consume', ['token' => $second])->assertOk();
+
+        $this->assertSame(1, User::count());
     }
 
     public function test_AC_001_06_logging_out_ends_the_session(): void

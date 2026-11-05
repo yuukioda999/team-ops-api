@@ -11,7 +11,7 @@ final class UpdateDisplayName
 {
     public function __invoke(User $user, string $displayName): User
     {
-        $user->update(['display_name' => trim($displayName)]);
+        $user->update(['display_name' => $displayName]);
 
         return $user;
     }

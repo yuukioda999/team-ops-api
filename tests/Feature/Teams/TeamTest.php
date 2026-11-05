@@ -45,6 +45,9 @@ class TeamTest extends TestCase
             'name over 50 characters' => [['name' => str_repeat('あ', 51), 'sport' => 'soccer'], 'errors.name.0'],
             'unknown sport' => [['name' => 'FC', 'sport' => 'cricket'], 'errors.sport.0'],
             'missing sport' => [['name' => 'FC'], 'errors.sport.0'],
+            'full-width spaces only' => [['name' => "\u{3000}\u{3000}", 'sport' => 'soccer'], 'errors.name.0'],
+            'a line break' => [['name' => "つくば\nFC", 'sport' => 'soccer'], 'errors.name.0'],
+            'a right-to-left override' => [['name' => "FC\u{202E}abc", 'sport' => 'soccer'], 'errors.name.0'],
         ];
     }
 
@@ -83,6 +86,17 @@ class TeamTest extends TestCase
             ->assertJsonPath('errors.team.0', '代表として作成できるチームは5つまでです。');
 
         $this->assertSame(5, Team::count());
+    }
+
+    public function test_AC_001_12_with_four_teams_only_one_more_can_be_created(): void
+    {
+        $user = User::factory()->create();
+        Team::factory()->count(4)->withRepresentative()->create(['created_by' => $user->id]);
+
+        $this->actingAs($user)->postJson('/api/teams', ['name' => 'FC 5', 'sport' => 'soccer'])->assertCreated();
+        $this->actingAs($user)->postJson('/api/teams', ['name' => 'FC 6', 'sport' => 'soccer'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.team.0', '代表として作成できるチームは5つまでです。');
     }
 
     public function test_AC_001_12_the_limit_is_per_person(): void

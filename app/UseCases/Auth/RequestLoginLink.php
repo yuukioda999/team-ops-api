@@ -13,17 +13,20 @@ use Illuminate\Support\Facades\DB;
  *
  * 登録済みかどうかで、応答もここでの処理(トークンの作成と配信依頼)も変えない。
  * アカウントはリンクを使った時点で作る(AC-001-03)。
+ * 登録済みなら、宛先はアカウントに保存してあるアドレスにする(入力された文字列には送らない)。
  */
 final class RequestLoginLink
 {
     public function __construct(private readonly EmailOutbox $outbox) {}
 
+    /**
+     * @param  string  $email  正規化済みのメールアドレス(EmailAddressRequest::address)
+     */
     public function __invoke(string $email): void
     {
-        $email = trim($email);
-
         DB::transaction(function () use ($email): void {
             $user = User::whereEmail($email)->first();
+            $email = $user !== null ? $user->email : $email;
             [$token, $plain] = OneTimeToken::issue(LoginTokenPurpose::Login, $email, $user?->id);
 
             $this->outbox->queue(

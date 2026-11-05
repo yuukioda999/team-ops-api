@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Teams;
 
 use App\Enums\Sport;
+use App\Support\Text\SingleLineText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -11,7 +12,7 @@ final class CreateTeamRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('name'))) {
-            $this->merge(['name' => trim($this->input('name'))]);
+            $this->merge(['name' => SingleLineText::trim($this->input('name'))]);
         }
     }
 
@@ -21,7 +22,7 @@ final class CreateTeamRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'between:1,50'],
+            'name' => ['required', 'string', 'between:1,50', 'not_regex:'.SingleLineText::FORBIDDEN_PATTERN],
             'sport' => ['required', Rule::enum(Sport::class)],
         ];
     }

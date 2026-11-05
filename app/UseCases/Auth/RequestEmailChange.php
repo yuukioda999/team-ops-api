@@ -3,6 +3,7 @@
 namespace App\UseCases\Auth;
 
 use App\Enums\LoginTokenPurpose;
+use App\Models\LoginToken;
 use App\Models\User;
 use App\Support\Auth\OneTimeToken;
 use App\Support\NotifyRelay\EmailOutbox;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\DB;
  * メールアドレスの変更を申請する(AC-001-09)。新しいアドレスに確認メールを送り、
  * リンクを開くまでは旧アドレスのまま。
  *
+ * 確定には、申請した本人のログインが必要(ConfirmEmailChange)。
  * 新しいアドレスが別のアカウントで使われている場合も、応答は変えない(登録の有無を推測させない)。
  * 代わりに新しいアドレスへ「変更できない」ことだけを知らせる。届くのはそのアドレスの持ち主だけ。
  */
@@ -19,11 +21,18 @@ final class RequestEmailChange
 {
     public function __construct(private readonly EmailOutbox $outbox) {}
 
+    /**
+     * @param  string  $newEmail  正規化済みのメールアドレス(EmailAddressRequest::address)
+     */
     public function __invoke(User $user, string $newEmail): void
     {
-        $newEmail = trim($newEmail);
-
         DB::transaction(function () use ($user, $newEmail): void {
+            // 新しく申請したら、前の申請のリンクは使えなくする(打ち間違えたアドレス宛てのリンクを残さない)
+            LoginToken::where('user_id', $user->id)
+                ->where('purpose', LoginTokenPurpose::EmailChange)
+                ->whereNull('used_at')
+                ->update(['used_at' => now()]);
+
             $owner = User::whereEmail($newEmail)->first();
             [$token, $plain] = OneTimeToken::issue(LoginTokenPurpose::EmailChange, $newEmail, $user->id);
 

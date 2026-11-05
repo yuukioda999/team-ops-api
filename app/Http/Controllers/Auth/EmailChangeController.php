@@ -28,12 +28,14 @@ final class EmailChangeController extends Controller
     }
 
     /**
-     * 確認メールのリンクで変更を確定する(AC-001-09・10)。別の端末で開いても確定できるよう、
-     * ログインは求めない(トークンが本人の確認になる)。
+     * 確認メールのリンクで変更を確定する(AC-001-09・10)。申請した本人のログインが必要(plan.md D5)。
      */
     public function consume(ConsumeTokenRequest $request, ConfirmEmailChange $confirmEmailChange): JsonResponse
     {
-        $result = $confirmEmailChange($request->token());
+        $user = $request->user();
+        abort_unless($user instanceof User, 401);
+
+        $result = $confirmEmailChange($user, $request->token(), $request->hasSession() ? $request->session()->getId() : null);
 
         return match ($result) {
             ConfirmEmailChange::INVALID => new JsonResponse(['message' => ApiErrorResponse::message(410)], 410),

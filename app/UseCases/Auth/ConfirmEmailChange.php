@@ -3,13 +3,19 @@
 namespace App\UseCases\Auth;
 
 use App\Enums\LoginTokenPurpose;
+use App\Models\LoginToken;
 use App\Models\User;
 use App\Support\Auth\OneTimeToken;
+use App\Support\Crypto\BlindIndex;
 use App\Support\NotifyRelay\EmailOutbox;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
  * メールアドレスの変更を確定し、旧アドレスに知らせる(AC-001-09・10)。
+ *
+ * 確定できるのは、申請した本人がログインしているときだけ(plan.md D5)。
+ * 新しいアドレスを打ち間違えても、その宛先の持ち主がリンクを押すだけで乗っ取ることはできない。
  */
 final class ConfirmEmailChange
 {
@@ -20,24 +26,32 @@ final class ConfirmEmailChange
     public function __construct(private readonly EmailOutbox $outbox) {}
 
     /**
-     * @return User|string 変更後の利用者。失敗したら INVALID(期限切れなど)か TAKEN(すでに使われている)
+     * @param  string|null  $currentSessionId  確定した端末のセッション。これ以外のセッションは終了させる
+     * @return User|string 変更後の利用者。失敗したら INVALID(期限切れ・別の人の申請など)か TAKEN(すでに使われている)
      */
-    public function __invoke(string $plainToken): User|string
+    public function __invoke(User $user, string $plainToken, ?string $currentSessionId): User|string
     {
-        return DB::transaction(function () use ($plainToken): User|string {
-            $token = OneTimeToken::consume(LoginTokenPurpose::EmailChange, $plainToken);
-            $user = $token?->user_id !== null ? User::lockForUpdate()->find($token->user_id) : null;
-            if ($token === null || $user === null) {
+        return DB::transaction(function () use ($user, $plainToken, $currentSessionId): User|string {
+            // 他人の申請のリンクは使わず、存在しないリンクと同じ扱いにする
+            $token = OneTimeToken::consume(LoginTokenPurpose::EmailChange, $plainToken, $user->id);
+            if ($token === null) {
                 return self::INVALID;
             }
 
-            $taken = User::whereEmail($token->email)->whereKeyNot($user->id)->exists();
-            if ($taken) {
+            $user = User::lockForUpdate()->findOrFail($user->id);
+            if (User::whereEmail($token->email)->whereKeyNot($user->id)->exists()) {
                 return self::TAKEN;
             }
 
             $oldEmail = $user->email;
-            $user->update(['email' => $token->email]);
+            try {
+                DB::transaction(fn () => $user->update(['email' => $token->email]));
+            } catch (UniqueConstraintViolationException) {
+                return self::TAKEN; // 同時に別の人が同じアドレスに変更した
+            }
+
+            $this->revokeOutstandingLinks($user, $oldEmail);
+            $this->endOtherSessions($user, $currentSessionId);
 
             $this->outbox->queue(
                 kind: 'email_changed',
@@ -53,5 +67,31 @@ final class ConfirmEmailChange
 
             return $user;
         });
+    }
+
+    /**
+     * まだ使われていないメール変更のリンクと、旧アドレス宛てのログイン用リンクを使えなくする。
+     */
+    private function revokeOutstandingLinks(User $user, string $oldEmail): void
+    {
+        LoginToken::whereNull('used_at')
+            ->where(fn ($q) => $q
+                ->where(fn ($q) => $q->where('user_id', $user->id)->where('purpose', LoginTokenPurpose::EmailChange))
+                ->orWhere(fn ($q) => $q->where('email_index', app(BlindIndex::class)->email($oldEmail))->where('purpose', LoginTokenPurpose::Login)))
+            ->update(['used_at' => now()]);
+    }
+
+    /**
+     * 確定した端末以外のセッションを終了させる(旧アドレスでログインしていた別の端末を残さない)。
+     */
+    private function endOtherSessions(User $user, ?string $currentSessionId): void
+    {
+        if (config('session.driver') !== 'database') {
+            return;
+        }
+        DB::table((string) config('session.table', 'sessions'))
+            ->where('user_id', $user->id)
+            ->when($currentSessionId !== null, fn ($q) => $q->where('id', '!=', $currentSessionId))
+            ->delete();
     }
 }

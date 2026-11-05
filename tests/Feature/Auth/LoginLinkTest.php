@@ -43,13 +43,36 @@ class LoginLinkTest extends AuthTestCase
         $this->assertSame($user->id, LoginToken::whereEmail('coach@example.invalid')->sole()->user_id);
     }
 
-    public function test_AC_001_02_the_address_is_matched_regardless_of_case(): void
+    public function test_AC_001_02_the_address_is_matched_regardless_of_case_and_mailed_to_the_stored_address(): void
     {
         $user = User::factory()->create(['email' => 'coach@example.invalid']);
 
         $this->postJson('/api/auth/login-links', ['email' => ' Coach@Example.INVALID '])->assertAccepted();
 
         $this->assertSame($user->id, LoginToken::sole()->user_id);
+        $this->assertSame('coach@example.invalid', LoginToken::sole()->email);
+        $this->assertSame('coach@example.invalid', OutboxMessage::sole()->payload['recipients'][0]['email'] ?? null);
+    }
+
+    public function test_AC_001_02_a_full_width_address_is_rejected_and_never_matched_to_an_account(): void
+    {
+        User::factory()->create(['email' => 'victim@example.invalid']);
+
+        foreach (['ｖｉｃｔｉｍ@example.invalid', 'victim@ｅｘａｍｐｌｅ.invalid'] as $email) {
+            $this->postJson('/api/auth/login-links', ['email' => $email])
+                ->assertUnprocessable()
+                ->assertJsonPath('errors.email.0', 'メールアドレスの形式が正しくありません。');
+        }
+        $this->assertSame(0, OutboxMessage::count());
+        $this->assertSame(0, LoginToken::count());
+    }
+
+    public function test_an_unregistered_address_is_stored_and_mailed_in_lower_case(): void
+    {
+        $this->postJson('/api/auth/login-links', ['email' => 'New.Parent@Example.INVALID'])->assertAccepted();
+
+        $this->assertSame('new.parent@example.invalid', LoginToken::sole()->email);
+        $this->assertSame('new.parent@example.invalid', OutboxMessage::sole()->payload['recipients'][0]['email'] ?? null);
     }
 
     public function test_AC_001_03_the_link_expires_after_15_minutes_and_only_the_token_hash_is_stored(): void
