@@ -26,7 +26,7 @@
     <php>
         <!--
             force="true": `make test-api` runs inside the api container, which already has the
-            values of env/api.env (APP_ENV=local, the real notify-relay URL, DEMO_MODE=true).
+            values of env/api.env (APP_ENV=local, the real notify-relay URL, RECIPIENTS_INVALID_ONLY=true).
             Without force (on both env and server), PHPUnit keeps those and the tests run against the wrong settings.
             DB_* stay without force so the Makefile can point the tests at MySQL (team_ops_test).
         -->
@@ -39,6 +39,7 @@
         <env name="NOTIFY_RELAY_KEY_ID" value="k-test" force="true"/>
         <env name="NOTIFY_RELAY_SECRET" value="dGVzdC1yZWxheS1zaWduaW5nLWtleS0zMi1ieXRlcyE=" force="true"/>
         <env name="DEMO_MODE" value="false" force="true"/>
+        <env name="RECIPIENTS_INVALID_ONLY" value="false" force="true"/>
         <env name="CACHE_STORE" value="array" force="true"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
@@ -57,6 +58,7 @@
         <server name="NOTIFY_RELAY_KEY_ID" value="k-test" force="true"/>
         <server name="NOTIFY_RELAY_SECRET" value="dGVzdC1yZWxheS1zaWduaW5nLWtleS0zMi1ieXRlcyE=" force="true"/>
         <server name="DEMO_MODE" value="false" force="true"/>
+        <server name="RECIPIENTS_INVALID_ONLY" value="false" force="true"/>
         <server name="CACHE_STORE" value="array" force="true"/>
         <server name="MAIL_MAILER" value="array" force="true"/>
         <server name="QUEUE_CONNECTION" value="sync" force="true"/>

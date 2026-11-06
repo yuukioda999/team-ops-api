@@ -12,7 +12,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * メールアドレスの変更を確定し、旧アドレスに知らせる(AC-001-09・10)。
+ * メールアドレスの変更を確定し、旧アドレスに知らせる(AC-001-09・10・16・17)。
  *
  * 確定できるのは、申請した本人がログインしているときだけ(plan.md D5)。
  * 新しいアドレスを打ち間違えても、その宛先の持ち主がリンクを押すだけで乗っ取ることはできない。

@@ -28,7 +28,7 @@ final class EmailChangeController extends Controller
     }
 
     /**
-     * 確認メールのリンクで変更を確定する(AC-001-09・10)。申請した本人のログインが必要(plan.md D5)。
+     * 確認メールのリンクで変更を確定する(AC-001-09・10・16・17)。申請した本人のログインが必要(plan.md D5)。
      */
     public function consume(ConsumeTokenRequest $request, ConfirmEmailChange $confirmEmailChange): JsonResponse
     {

@@ -155,9 +155,9 @@ class LoginLinkTest extends AuthTestCase
         $this->assertSame(0, OutboxMessage::count());
     }
 
-    public function test_AC_000_05_demo_mode_rejects_a_real_address_with_422_instead_of_failing(): void
+    public function test_AC_000_05_with_invalid_recipients_only_a_real_address_returns_422_instead_of_failing(): void
     {
-        config(['team_ops.demo_mode' => true]);
+        config(['team_ops.invalid_recipients_only' => true]);
 
         $this->postJson('/api/auth/login-links', ['email' => 'parent@example.com'])
             ->assertUnprocessable()
@@ -166,6 +166,16 @@ class LoginLinkTest extends AuthTestCase
 
         $this->postJson('/api/auth/login-links', ['email' => 'Coach@Example.INVALID'])->assertAccepted();
         $this->assertSame(1, OutboxMessage::count());
+    }
+
+    public function test_AC_007_13_demo_mode_alone_also_limits_recipients_to_invalid(): void
+    {
+        config(['team_ops.invalid_recipients_only' => false, 'team_ops.demo_mode' => true]);
+
+        $this->postJson('/api/auth/login-links', ['email' => 'parent@example.com'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.email.0', 'この環境では、.invalid で終わるメールアドレスだけ使えます。');
+        $this->assertSame(0, OutboxMessage::count());
     }
 
     public function test_AC_000_04_requesting_a_link_logs_neither_the_address_nor_the_token(): void

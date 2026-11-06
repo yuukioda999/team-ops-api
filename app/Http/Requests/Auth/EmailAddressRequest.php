@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Auth;
 
 use App\Support\Crypto\BlindIndex;
+use App\Support\NotifyRelay\RecipientRestriction;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -32,8 +33,8 @@ abstract class EmailAddressRequest extends FormRequest
         // filter(PHP の FILTER_VALIDATE_EMAIL)は ASCII 以外を通さない
         $rules = ['required', 'string', 'max:254', 'email:rfc,filter'];
 
-        // デモモードのアウトボックスは .invalid 以外を受け付けない。ここで先に断り、500 ではなく項目のエラーにする
-        if ((bool) config('team_ops.demo_mode')) {
+        // 宛先を .invalid に限る設定では、アウトボックスが .invalid 以外を受け付けない。ここで先に断り、500 ではなく項目のエラーにする
+        if (RecipientRestriction::invalidOnly()) {
             $rules[] = function (string $attribute, mixed $value, \Closure $fail): void {
                 if (is_string($value) && ! str_ends_with(BlindIndex::normalizeEmail($value), '.invalid')) {
                     $fail('この環境では、.invalid で終わるメールアドレスだけ使えます。');
