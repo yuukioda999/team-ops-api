@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\ApiErrorResponse;
+use App\Http\Middleware\RequireTrustedProxies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,6 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Web と同じオリジンからの API 呼び出しを Cookie のセッションで認証する(ADR-0008)
         $middleware->statefulApi();
+
+        // 本番やデモで TRUSTED_PROXIES を設定し忘れたまま、リクエストを処理しない(AC-001-05)
+        $middleware->prepend(RequireTrustedProxies::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // 入力値をセッションに残さない(個人情報を含むため)

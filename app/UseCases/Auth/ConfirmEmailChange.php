@@ -12,7 +12,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * メールアドレスの変更を確定し、旧アドレスに知らせる(AC-001-09・10)。
+ * メールアドレスの変更を確定し、旧アドレスに知らせる(AC-001-09・10・16・17)。
  *
  * 確定できるのは、申請した本人がログインしているときだけ(plan.md D5)。
  * 新しいアドレスを打ち間違えても、その宛先の持ち主がリンクを押すだけで乗っ取ることはできない。
@@ -55,7 +55,7 @@ final class ConfirmEmailChange
 
             $this->outbox->queue(
                 kind: 'email_changed',
-                dedupeKey: 'email-changed:'.$token->id,
+                dedupeKey: $token->dedupeKey('email-changed'),
                 subject: '【チーム運営】メールアドレスが変更されました',
                 text: implode("\n", [
                     'アカウントのメールアドレスが変更されました。今後のお知らせは新しいメールアドレスに届きます。',
@@ -86,8 +86,13 @@ final class ConfirmEmailChange
      */
     private function endOtherSessions(User $user, ?string $currentSessionId): void
     {
-        if (config('session.driver') !== 'database') {
-            return;
+        $driver = (string) config('session.driver');
+        if ($driver === 'array') {
+            return; // テスト用。リクエストをまたいで残るセッションがない
+        }
+        if ($driver !== 'database') {
+            // 黙って抜けると、他の端末のログインが残ったまま変更が終わってしまう
+            throw new \LogicException("Ending other sessions is not implemented for the {$driver} session driver.");
         }
         DB::table((string) config('session.table', 'sessions'))
             ->where('user_id', $user->id)

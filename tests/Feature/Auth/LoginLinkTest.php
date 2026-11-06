@@ -29,6 +29,17 @@ class LoginLinkTest extends AuthTestCase
         $this->assertNull(LoginToken::sole()->user_id);
     }
 
+    public function test_ADR_0002_the_dedupe_key_stays_unique_even_if_the_database_is_recreated(): void
+    {
+        $this->postJson('/api/auth/login-links', ['email' => 'coach@example.invalid'])->assertAccepted();
+
+        $token = LoginToken::sole();
+        $key = OutboxMessage::sole()->dedupe_key;
+        $this->assertSame('login-link:'.$token->id.'-'.substr($token->token_hash, 0, 16), $key);
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9._:-]{8,128}$/', $key, 'notify-relay contract');
+        $this->assertStringNotContainsString($token->token_hash, $key, 'Only a prefix of the hash is used');
+    }
+
     public function test_AC_001_02_a_registered_address_gets_exactly_the_same_response(): void
     {
         $user = User::factory()->create(['email' => 'coach@example.invalid']);
@@ -141,6 +152,29 @@ class LoginLinkTest extends AuthTestCase
             ->assertUnprocessable()
             ->assertJsonPath('errors.email.0', 'メールアドレスを入力してください。');
 
+        $this->assertSame(0, OutboxMessage::count());
+    }
+
+    public function test_AC_000_05_with_invalid_recipients_only_a_real_address_returns_422_instead_of_failing(): void
+    {
+        config(['team_ops.invalid_recipients_only' => true]);
+
+        $this->postJson('/api/auth/login-links', ['email' => 'parent@example.com'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.email.0', 'この環境では、.invalid で終わるメールアドレスだけ使えます。');
+        $this->assertSame(0, OutboxMessage::count());
+
+        $this->postJson('/api/auth/login-links', ['email' => 'Coach@Example.INVALID'])->assertAccepted();
+        $this->assertSame(1, OutboxMessage::count());
+    }
+
+    public function test_AC_007_13_demo_mode_alone_also_limits_recipients_to_invalid(): void
+    {
+        config(['team_ops.invalid_recipients_only' => false, 'team_ops.demo_mode' => true]);
+
+        $this->postJson('/api/auth/login-links', ['email' => 'parent@example.com'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.email.0', 'この環境では、.invalid で終わるメールアドレスだけ使えます。');
         $this->assertSame(0, OutboxMessage::count());
     }
 

@@ -24,23 +24,44 @@
         </include>
     </source>
     <php>
-        <env name="APP_ENV" value="testing"/>
+        <!--
+            force="true": `make test-api` runs inside the api container, which already has the
+            values of env/api.env (APP_ENV=local, the real notify-relay URL, RECIPIENTS_INVALID_ONLY=true).
+            Without force (on both env and server), PHPUnit keeps those and the tests run against the wrong settings.
+            DB_* stay without force so the Makefile can point the tests at MySQL (team_ops_test).
+        -->
+        <env name="APP_ENV" value="testing" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
-        <env name="BLIND_INDEX_KEY" value="base64:dGVzdC1ibGluZC1pbmRleC1rZXktMzItYnl0ZXMhISE="/>
-        <env name="BROADCAST_CONNECTION" value="null"/>
-        <env name="NOTIFY_RELAY_URL" value="http://notify-relay.test"/>
-        <env name="NOTIFY_RELAY_KEY_ID" value="k-test"/>
-        <env name="NOTIFY_RELAY_SECRET" value="dGVzdC1yZWxheS1zaWduaW5nLWtleS0zMi1ieXRlcyE="/>
-        <env name="CACHE_STORE" value="array"/>
+        <env name="BLIND_INDEX_KEY" value="base64:dGVzdC1ibGluZC1pbmRleC1rZXktMzItYnl0ZXMhISE=" force="true"/>
+        <env name="BROADCAST_CONNECTION" value="null" force="true"/>
+        <env name="NOTIFY_RELAY_URL" value="http://notify-relay.test" force="true"/>
+        <env name="NOTIFY_RELAY_KEY_ID" value="k-test" force="true"/>
+        <env name="NOTIFY_RELAY_SECRET" value="dGVzdC1yZWxheS1zaWduaW5nLWtleS0zMi1ieXRlcyE=" force="true"/>
+        <env name="DEMO_MODE" value="false" force="true"/>
+        <env name="RECIPIENTS_INVALID_ONLY" value="false" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
-        <env name="MAIL_MAILER" value="array"/>
-        <env name="QUEUE_CONNECTION" value="sync"/>
-        <env name="SESSION_DRIVER" value="array"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Laravel reads $_SERVER before $_ENV, so the forced values are set there too -->
+        <server name="APP_ENV" value="testing" force="true"/>
+        <server name="BLIND_INDEX_KEY" value="base64:dGVzdC1ibGluZC1pbmRleC1rZXktMzItYnl0ZXMhISE=" force="true"/>
+        <server name="BROADCAST_CONNECTION" value="null" force="true"/>
+        <server name="NOTIFY_RELAY_URL" value="http://notify-relay.test" force="true"/>
+        <server name="NOTIFY_RELAY_KEY_ID" value="k-test" force="true"/>
+        <server name="NOTIFY_RELAY_SECRET" value="dGVzdC1yZWxheS1zaWduaW5nLWtleS0zMi1ieXRlcyE=" force="true"/>
+        <server name="DEMO_MODE" value="false" force="true"/>
+        <server name="RECIPIENTS_INVALID_ONLY" value="false" force="true"/>
+        <server name="CACHE_STORE" value="array" force="true"/>
+        <server name="MAIL_MAILER" value="array" force="true"/>
+        <server name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <server name="SESSION_DRIVER" value="array" force="true"/>
     </php>
 </phpunit>

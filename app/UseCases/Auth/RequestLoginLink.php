@@ -31,7 +31,7 @@ final class RequestLoginLink
 
             $this->outbox->queue(
                 kind: 'login_link',
-                dedupeKey: 'login-link:'.$token->id,
+                dedupeKey: $token->dedupeKey('login-link'),
                 subject: '【チーム運営】ログイン用のリンク',
                 text: implode("\n", [
                     '次のリンクを開き、表示された画面で「ログインする」を押してください。',

@@ -5,6 +5,7 @@ namespace Tests\Feature\Auth;
 use App\Models\LoginToken;
 use App\Models\OutboxMessage;
 use App\Models\User;
+use App\UseCases\Auth\ConfirmEmailChange;
 
 /**
  * 001 アカウント(AC-001-08・09・10)。
@@ -112,7 +113,7 @@ class AccountTest extends AuthTestCase
         $this->assertTrue(User::whereEmail('old@example.invalid')->exists());
     }
 
-    public function test_AC_001_10_after_the_change_other_sessions_and_old_login_links_stop_working(): void
+    public function test_AC_001_16_after_the_change_other_sessions_and_old_login_links_stop_working(): void
     {
         $this->logIn('old@example.invalid');
         $otherDevice = $this->defaultCookies;
@@ -168,7 +169,7 @@ class AccountTest extends AuthTestCase
         $this->postJson('/api/me/email-changes/consume', ['token' => $expired])->assertStatus(410);
     }
 
-    public function test_AC_001_09_an_address_used_by_another_account_cannot_be_taken_and_this_is_not_revealed(): void
+    public function test_AC_001_15_an_address_used_by_another_account_cannot_be_taken_and_this_is_not_revealed(): void
     {
         User::factory()->create(['email' => 'taken@example.invalid']);
         $this->logIn('old@example.invalid');
@@ -179,11 +180,12 @@ class AccountTest extends AuthTestCase
 
         $mail = OutboxMessage::latest('id')->first();
         $this->assertSame('email_change_unavailable', $mail?->kind);
+        $this->assertStringContainsString('すでに別のアカウントで使われているため変更できません', (string) ($mail?->payload['message']['text'] ?? ''));
         $this->assertArrayNotHasKey('url', $mail?->payload['message'] ?? [], 'No link that could complete the change');
         $this->assertNotNull(LoginToken::latest('id')->first()?->used_at);
     }
 
-    public function test_AC_001_09_the_change_fails_if_the_address_was_taken_in_the_meantime(): void
+    public function test_AC_001_17_the_change_fails_if_the_address_was_taken_in_the_meantime(): void
     {
         $this->logIn('old@example.invalid');
         $this->postJson('/api/me/email-changes', ['new_email' => 'new@example.invalid'])->assertAccepted();
@@ -203,5 +205,26 @@ class AccountTest extends AuthTestCase
         $this->postJson('/api/me/email-changes', ['new_email' => 'nope'])
             ->assertUnprocessable()
             ->assertJsonPath('errors.new_email.0', '新しいメールアドレスの形式が正しくありません。');
+    }
+
+    public function test_AC_000_05_with_invalid_recipients_only_a_real_new_address_returns_422(): void
+    {
+        $this->logIn('old@example.invalid');
+        config(['team_ops.invalid_recipients_only' => true]);
+
+        $this->postJson('/api/me/email-changes', ['new_email' => 'parent@example.com'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.new_email.0', 'この環境では、.invalid で終わるメールアドレスだけ使えます。');
+    }
+
+    public function test_AC_001_16_ending_other_sessions_refuses_a_session_driver_it_cannot_clean_up(): void
+    {
+        $user = User::factory()->create(['email' => 'old@example.invalid']);
+        config(['session.driver' => 'file']);
+
+        $endOtherSessions = new \ReflectionMethod(ConfirmEmailChange::class, 'endOtherSessions');
+
+        $this->expectException(\LogicException::class);
+        $endOtherSessions->invoke(app(ConfirmEmailChange::class), $user, null);
     }
 }

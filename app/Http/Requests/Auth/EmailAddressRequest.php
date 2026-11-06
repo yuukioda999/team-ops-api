@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Auth;
 
 use App\Support\Crypto\BlindIndex;
+use App\Support\NotifyRelay\RecipientRestriction;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -30,9 +31,18 @@ abstract class EmailAddressRequest extends FormRequest
     public function rules(): array
     {
         // filter(PHP の FILTER_VALIDATE_EMAIL)は ASCII 以外を通さない
-        return [
-            $this->field() => ['required', 'string', 'max:254', 'email:rfc,filter'],
-        ];
+        $rules = ['required', 'string', 'max:254', 'email:rfc,filter'];
+
+        // 宛先を .invalid に限る設定では、アウトボックスが .invalid 以外を受け付けない。ここで先に断り、500 ではなく項目のエラーにする
+        if (RecipientRestriction::invalidOnly()) {
+            $rules[] = function (string $attribute, mixed $value, \Closure $fail): void {
+                if (is_string($value) && ! str_ends_with(BlindIndex::normalizeEmail($value), '.invalid')) {
+                    $fail('この環境では、.invalid で終わるメールアドレスだけ使えます。');
+                }
+            };
+        }
+
+        return [$this->field() => $rules];
     }
 
     /**
