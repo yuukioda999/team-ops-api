@@ -5,10 +5,8 @@ namespace App\Http\Controllers\Invitations;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Invitations\InvitationTokenRequest;
 use App\Http\Requests\Invitations\SubmitJoinRequestRequest;
-use App\Models\TeamJoinRequest;
-use App\Models\TeamMembership;
 use App\Models\User;
-use App\UseCases\Invitations\FindInvitation;
+use App\UseCases\Invitations\PreviewInvitation;
 use App\UseCases\JoinRequests\JoinRequestOutcome;
 use App\UseCases\JoinRequests\SubmitJoinRequest;
 use Illuminate\Http\JsonResponse;
@@ -23,32 +21,20 @@ final class InvitationController extends Controller
     /**
      * リンクのチーム名を返す(ログイン不要)。ログイン中なら、そのチームとの関係も返す(AC-002-05・07・08・09)。
      */
-    public function preview(InvitationTokenRequest $request, FindInvitation $find): JsonResponse
+    public function preview(InvitationTokenRequest $request, PreviewInvitation $previewInvitation): JsonResponse
     {
-        $invitation = $find($request->token());
-        if ($invitation === null) {
+        $user = $request->user();
+        $result = $previewInvitation($request->token(), $user instanceof User ? $user : null);
+        if ($result === null) {
             return new JsonResponse(['message' => self::INVALID_LINK], 410);
         }
-        $team = $invitation->team()->firstOrFail();
-
-        $user = $request->user();
-        $relation = null;
-        $teamId = null;
-        if ($user instanceof User) {
-            if (TeamMembership::where('team_id', $team->id)->where('user_id', $user->id)->exists()) {
-                $relation = 'member';
-                $teamId = $team->id; // メンバーにだけ、チームの画面へ進むためのIDを返す
-            } elseif (TeamJoinRequest::where('team_id', $team->id)->where('pending_user_id', $user->id)->exists()) {
-                $relation = 'pending';
-            } else {
-                $relation = 'none';
-            }
-        }
+        ['team' => $team, 'relation' => $relation] = $result;
 
         return new JsonResponse([
             'team' => ['name' => $team->name, 'sport' => $team->sport->value],
             'relation' => $relation,
-            'team_id' => $teamId,
+            // メンバーにだけ、チームの画面へ進むためのIDを返す(AC-002-08)
+            'team_id' => $relation === 'member' ? $team->id : null,
         ]);
     }
 
@@ -68,6 +54,7 @@ final class InvitationController extends Controller
             JoinRequestOutcome::AlreadyMember => new JsonResponse(['message' => 'すでにこのチームのメンバーです', 'team_id' => $team?->id], 409),
             JoinRequestOutcome::InvalidLink => new JsonResponse(['message' => self::INVALID_LINK], 410),
             JoinRequestOutcome::TooMany => new JsonResponse(['message' => 'このリンクへの申請が多すぎるため、受け付けを止めています。チームの役員にお問い合わせください'], 429),
+            JoinRequestOutcome::TooManyFromPerson => new JsonResponse(['message' => 'このチームへの申請は1日'.SubmitJoinRequest::MAX_PER_PERSON_PER_DAY.'回までです。時間をおいてもう一度お試しください'], 429),
         };
     }
 }

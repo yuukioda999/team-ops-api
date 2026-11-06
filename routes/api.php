@@ -42,7 +42,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/invitation', [InvitationController::class, 'store']);
         Route::delete('/invitation', [InvitationController::class, 'destroy']);
         Route::get('/join-requests', [JoinRequestController::class, 'index']);
-        Route::post('/join-requests/{joinRequest}/approve', [JoinRequestController::class, 'approve'])->whereNumber('joinRequest');
-        Route::post('/join-requests/{joinRequest}/reject', [JoinRequestController::class, 'reject'])->whereNumber('joinRequest');
+        // ID は PHP の整数に収まる18桁まで。それより長いものは、存在しない申請と同じ404にする(AC-000-01)
+        Route::post('/join-requests/{joinRequest}/approve', [JoinRequestController::class, 'approve'])->where('joinRequest', '[0-9]{1,18}');
+        Route::post('/join-requests/{joinRequest}/reject', [JoinRequestController::class, 'reject'])->where('joinRequest', '[0-9]{1,18}');
     });
 });

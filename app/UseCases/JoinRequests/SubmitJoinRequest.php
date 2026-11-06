@@ -21,6 +21,9 @@ final class SubmitJoinRequest
     /** 1つの招待リンクで、直近24時間に受け付ける申請の数(AC-002-10) */
     public const int MAX_PER_LINK_PER_DAY = 50;
 
+    /** 同じ人が同じチームへ、直近24時間に申請できる回数(AC-002-18)。却下のたびの再申請で通知が続かないように */
+    public const int MAX_PER_PERSON_PER_DAY = 3;
+
     public function __construct(
         private readonly EmailOutbox $outbox,
         private readonly FindInvitation $findInvitation,
@@ -46,6 +49,11 @@ final class SubmitJoinRequest
             $pending = TeamJoinRequest::where('team_id', $team->id)->where('pending_user_id', $user->id)->first();
             if ($pending !== null) {
                 return [JoinRequestOutcome::AlreadyPending, $team, $pending];
+            }
+
+            $mine = TeamJoinRequest::where('team_id', $team->id)->where('user_id', $user->id)->where('created_at', '>', now()->subDay())->count();
+            if ($mine >= self::MAX_PER_PERSON_PER_DAY) {
+                return [JoinRequestOutcome::TooManyFromPerson, $team, null];
             }
 
             $recent = TeamJoinRequest::where('invitation_id', $invitation->id)->where('created_at', '>', now()->subDay())->count();
@@ -111,7 +119,8 @@ final class SubmitJoinRequest
 
         $this->outbox->queue(
             kind: 'invitation_flood',
-            dedupeKey: "team:{$team->id}:invitation:{$invitationId}:flood:".now()->format('Ymd'),
+            // 宛先も含める。同じ日に代表のアドレスが変わっても、内容の違う依頼を同じキーで出さないように
+            dedupeKey: "team:{$team->id}:invitation:{$invitationId}:flood:".now()->format('Ymd').':'.substr(hash('sha256', implode(',', $recipients)), 0, 12),
             subject: '【チーム運営】招待リンクへの申請が多すぎます',
             text: implode("\n", [
                 "「{$team->name}」の招待リンクに、24時間で".self::MAX_PER_LINK_PER_DAY.'件を超える参加申請がありました。',

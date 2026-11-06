@@ -66,6 +66,16 @@ class ReturnToTest extends AuthTestCase
         $this->postJson('/api/auth/login-links/consume', ['token' => $token])->assertOk()->assertJsonPath('return_to', null);
     }
 
+    public function test_AC_001_19_a_trailing_newline_is_never_kept_in_the_return_path(): void
+    {
+        $path = '/join?token='.str_repeat('a1', 32);
+        // 入力の前後の空白は取り除かれる(TrimStrings)。検査自体も末尾の改行を受け付けない(\z)
+        $this->postJson('/api/auth/login-links', ['email' => 'parent@example.invalid', 'return_to' => $path."\n"])->assertAccepted();
+        $token = $this->tokenFromLatestMail('/login/verify');
+
+        $this->postJson('/api/auth/login-links/consume', ['token' => $token])->assertOk()->assertJsonPath('return_to', $path);
+    }
+
     public function test_AC_001_19_without_a_return_path_the_response_says_null(): void
     {
         $token = $this->requestLinkAndGetToken('parent@example.invalid');

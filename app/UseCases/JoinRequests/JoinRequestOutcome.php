@@ -15,6 +15,8 @@ enum JoinRequestOutcome: string
     case AlreadyMember = 'already_member';
     /** リンクが無効(AC-002-07) */
     case InvalidLink = 'invalid_link';
-    /** 24時間の申請の上限を超えた(AC-002-10) */
+    /** 1つのリンクへの24時間の申請の上限を超えた(AC-002-10) */
     case TooMany = 'too_many';
+    /** 同じ人が同じチームへ24時間に申請できる回数を超えた(AC-002-18) */
+    case TooManyFromPerson = 'too_many_from_person';
 }

@@ -77,6 +77,18 @@ class TeamIsolationTest extends TestCase
         $this->assertSame(JoinRequestStatus::Pending, $request->fresh()?->status);
     }
 
+    public function test_AC_000_01_a_join_request_id_too_long_for_an_integer_returns_404_not_500(): void
+    {
+        $representative = User::factory()->create();
+        $team = Team::factory()->withRepresentative()->create(['created_by' => $representative->id]);
+
+        foreach (['approve', 'reject'] as $action) {
+            $this->actingAs($representative)->postJson("/api/teams/{$team->id}/join-requests/99999999999999999999/{$action}", ['roles' => ['parent']])
+                ->assertNotFound()
+                ->assertExactJson(['message' => '見つかりません']);
+        }
+    }
+
     public function test_AC_000_01_a_malformed_team_id_returns_the_same_404(): void
     {
         $user = User::factory()->create();

@@ -5,10 +5,10 @@ namespace App\Http\Controllers\Teams;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InvitationResource;
 use App\Models\Team;
-use App\Models\TeamInvitation;
 use App\Models\User;
 use App\UseCases\Invitations\IssueInvitation;
 use App\UseCases\Invitations\RevokeInvitation;
+use App\UseCases\Invitations\ShowInvitation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -19,10 +19,10 @@ use Illuminate\Support\Facades\Gate;
  */
 final class InvitationController extends Controller
 {
-    public function show(Team $team): JsonResponse
+    public function show(Team $team, ShowInvitation $showInvitation): JsonResponse
     {
         Gate::authorize('manageInvitation', $team);
-        $invitation = TeamInvitation::where('team_id', $team->id)->active()->first();
+        $invitation = $showInvitation($team);
 
         return new JsonResponse(['invitation' => $invitation !== null ? (new InvitationResource($invitation))->resolve() : null]);
     }

@@ -87,6 +87,12 @@ class JoinRequestTest extends InvitationTestCase
         $this->assertCount(1, $floods);
         $this->assertSame(['rep@example.invalid'], $this->recipientsOf($floods->sole()));
 
+        // 同じ日に代表がメールアドレスを変えても、500 にならず新しい宛先にも1通だけ送る
+        $this->representative->forceFill(['email' => 'rep-new@example.invalid'])->save();
+        $this->actingAs($this->applicant('p54@example.invalid'))->postJson('/api/invitations/applications', $this->application($token))->assertTooManyRequests();
+        $this->actingAs($this->applicant('p55@example.invalid'))->postJson('/api/invitations/applications', $this->application($token))->assertTooManyRequests();
+        $this->assertSame(['rep@example.invalid', 'rep-new@example.invalid'], OutboxMessage::where('kind', 'invitation_flood')->orderBy('id')->get()->map(fn (OutboxMessage $m) => $this->recipientsOf($m)[0])->all());
+
         // 24時間たてば、また受け付ける
         $this->travel(25)->hours();
         $this->actingAs($this->applicant('p53@example.invalid'))->postJson('/api/invitations/applications', $this->application($token))->assertCreated();
@@ -133,14 +139,15 @@ class JoinRequestTest extends InvitationTestCase
     }
 
     /**
-     * @return array<string, array{list<string>, list<TeamRole>}>
+     * @return array<string, array{list<string>, list<TeamRole>, bool}>
      */
     public static function grantedRoles(): array
     {
+        // 送る役割、メンバーが持つ役割(決まった順)、承認するのが役員か
         return [
-            'parent' => [['parent'], [TeamRole::Parent]],
-            'coach' => [['coach'], [TeamRole::Coach]],
-            'coach and parent' => [['parent', 'coach'], [TeamRole::Coach, TeamRole::Parent]],
+            'parent by the representative' => [['parent'], [TeamRole::Parent], false],
+            'coach by an officer' => [['coach'], [TeamRole::Coach], true],
+            'coach and parent' => [['parent', 'coach'], [TeamRole::Coach, TeamRole::Parent], false],
         ];
     }
 
@@ -149,14 +156,15 @@ class JoinRequestTest extends InvitationTestCase
      * @param  list<TeamRole>  $expected
      */
     #[DataProvider('grantedRoles')]
-    public function test_AC_002_12_approving_makes_the_applicant_a_member_with_the_chosen_roles(array $send, array $expected): void
+    public function test_AC_002_12_approving_makes_the_applicant_a_member_with_the_chosen_roles(array $send, array $expected, bool $byOfficer): void
     {
+        $approver = $byOfficer ? $this->member([TeamRole::Officer], 'officer@example.invalid') : $this->representative;
         $token = $this->issueLink();
         $parent = $this->applicant();
         $this->actingAs($parent)->postJson('/api/invitations/applications', $this->application($token))->assertCreated();
         $request = TeamJoinRequest::sole();
 
-        $this->actingAs($this->representative)->postJson("/api/teams/{$this->team->id}/join-requests/{$request->id}/approve", ['roles' => $send])
+        $this->actingAs($approver)->postJson("/api/teams/{$this->team->id}/join-requests/{$request->id}/approve", ['roles' => $send])
             ->assertNoContent();
 
         $membership = TeamMembership::where('team_id', $this->team->id)->where('user_id', $parent->id)->sole();
@@ -174,8 +182,9 @@ class JoinRequestTest extends InvitationTestCase
         $this->assertSame("http://localhost:5173/teams/{$this->team->id}", $this->messageOf($mail)['url']);
 
         $log = AuditLog::where('action', 'join_request.approved')->sole();
-        // MySQL の JSON 列はキーを並べ替えて保存するので、キーの順番には依存しない
-        $this->assertEquals(['user_id' => $parent->id, 'roles' => array_map(fn (TeamRole $r) => $r->value, $send === ['parent', 'coach'] ? [TeamRole::Parent, TeamRole::Coach] : $expected)], $log->details);
+        $this->assertSame($approver->id, $log->actor_user_id);
+        // 監査ログには送られた役割をそのまま残す。MySQL の JSON 列はキーを並べ替えて保存するので、キーの順番には依存しない
+        $this->assertEquals(['user_id' => $parent->id, 'roles' => $send], $log->details);
     }
 
     /**
@@ -259,17 +268,61 @@ class JoinRequestTest extends InvitationTestCase
         $this->assertStringContainsString('join-requests:expire', Artisan::output());
     }
 
-    public function test_AC_002_16_a_rejected_applicant_can_apply_again(): void
+    /**
+     * @return array<string, array{JoinRequestStatus}>
+     */
+    public static function endedRequests(): array
+    {
+        return [
+            'rejected' => [JoinRequestStatus::Rejected],
+            'cancelled after 14 days' => [JoinRequestStatus::Cancelled],
+        ];
+    }
+
+    #[DataProvider('endedRequests')]
+    public function test_AC_002_16_after_a_rejection_or_cancellation_the_same_person_can_apply_again(JoinRequestStatus $ended): void
     {
         $token = $this->issueLink();
         $parent = $this->applicant();
         $this->actingAs($parent)->postJson('/api/invitations/applications', $this->application($token))->assertCreated();
         $first = TeamJoinRequest::sole();
-        $this->actingAs($this->representative)->postJson("/api/teams/{$this->team->id}/join-requests/{$first->id}/reject")->assertNoContent();
+        if ($ended === JoinRequestStatus::Rejected) {
+            $this->actingAs($this->representative)->postJson("/api/teams/{$this->team->id}/join-requests/{$first->id}/reject")->assertNoContent();
+        } else {
+            // リンクの期限(7日)より長く待つので、自動取り消しのあとは新しいリンクで申請する
+            $this->travel(TeamJoinRequest::EXPIRE_AFTER_DAYS)->days();
+            $this->travel(1)->minutes();
+            Artisan::call('join-requests:expire');
+            $token = $this->issueLink();
+        }
+        $this->assertSame($ended, $first->fresh()?->status);
 
         $this->actingAs($parent)->postJson('/api/invitations/applications', $this->application($token))->assertCreated();
 
-        $this->assertSame([JoinRequestStatus::Rejected, JoinRequestStatus::Pending], TeamJoinRequest::orderBy('id')->get()->map(fn (TeamJoinRequest $r) => $r->status)->all());
+        $this->assertSame([$ended, JoinRequestStatus::Pending], TeamJoinRequest::orderBy('id')->get()->map(fn (TeamJoinRequest $r) => $r->status)->all());
+        // 最初の画面には、そのチームの最新の申請(承認待ち)だけが出る
+        $this->actingAs($parent)->getJson('/api/me')->assertJsonCount(1, 'join_requests')->assertJsonPath('join_requests.0.status', 'pending');
+    }
+
+    public function test_AC_002_18_the_same_person_can_apply_to_a_team_at_most_3_times_a_day(): void
+    {
+        $token = $this->issueLink();
+        $parent = $this->applicant();
+        for ($i = 1; $i <= 3; $i++) {
+            $this->actingAs($parent)->postJson('/api/invitations/applications', $this->application($token))->assertCreated();
+            $id = TeamJoinRequest::where('pending_user_id', $parent->id)->sole()->id;
+            $this->actingAs($this->representative)->postJson("/api/teams/{$this->team->id}/join-requests/{$id}/reject")->assertNoContent();
+        }
+        $mailsBefore = OutboxMessage::where('kind', 'join_request_submitted')->count();
+
+        $this->actingAs($parent)->postJson('/api/invitations/applications', $this->application($token))
+            ->assertTooManyRequests()
+            ->assertJsonPath('message', 'このチームへの申請は1日3回までです。時間をおいてもう一度お試しください');
+        $this->assertSame($mailsBefore, OutboxMessage::where('kind', 'join_request_submitted')->count());
+
+        $this->travel(1)->days();
+        $this->travel(1)->minutes();
+        $this->actingAs($parent)->postJson('/api/invitations/applications', $this->application($token))->assertCreated();
     }
 
     public function test_AC_002_17_decided_applications_are_deleted_after_30_days(): void

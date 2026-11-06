@@ -8,7 +8,7 @@ final class RequestLoginLinkRequest extends EmailAddressRequest
      * ログイン後に戻ってよい先(AC-001-19、ADR-0010)。決まった形のパスだけを受け付ける。
      * 招待リンクと、メール変更の確認リンク。どちらも同じ形の64桁のトークンを持つ。
      */
-    private const string RETURN_TO_PATTERN = '#^/(join|settings/email/verify)\?token=[0-9a-f]{64}$#';
+    private const string RETURN_TO_PATTERN = '#\A/(join|settings/email/verify)\?token=[0-9a-f]{64}\z#';
 
     protected function field(): string
     {
