@@ -22,12 +22,13 @@ use Illuminate\Support\Carbon;
  * @property string $email
  * @property string $email_index
  * @property int|null $user_id
+ * @property string|null $return_to ログイン後に戻る先(AC-001-19)。招待リンクのトークンを含むので暗号化して保存する
  * @property string $token_hash
  * @property Carbon $expires_at
  * @property Carbon|null $used_at
  */
-#[Fillable(['purpose', 'email', 'user_id', 'token_hash', 'expires_at'])]
-#[Hidden(['email', 'email_index', 'token_hash'])]
+#[Fillable(['purpose', 'email', 'user_id', 'return_to', 'token_hash', 'expires_at'])]
+#[Hidden(['email', 'email_index', 'return_to', 'token_hash'])]
 class LoginToken extends Model
 {
     use HasEmailBlindIndex;
@@ -52,6 +53,7 @@ class LoginToken extends Model
         return [
             'purpose' => LoginTokenPurpose::class,
             'email' => 'encrypted',
+            'return_to' => 'encrypted',
             'expires_at' => 'datetime',
             'used_at' => 'datetime',
         ];

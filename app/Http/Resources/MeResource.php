@@ -2,9 +2,12 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\TeamRole;
 use App\Models\Team;
+use App\Models\TeamJoinRequest;
 use App\Models\TeamMembership;
 use App\Models\User;
+use App\UseCases\JoinRequests\ListMyJoinRequests;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -38,9 +41,17 @@ final class MeResource extends JsonResource
                     'id' => $team->id,
                     'name' => $team->name,
                     'sport' => $team->sport->value,
-                    'role' => $membership->role->value,
+                    'roles' => array_map(fn (TeamRole $role) => $role->value, $membership->roleList()),
                 ];
             })->values()->all(),
+            // 自分の参加申請。承認待ちと、承認されなかったもの(却下・自動取り消し)。承認されたものは teams に入る(AC-002-09・13)
+            'join_requests' => app(ListMyJoinRequests::class)($user)
+                ->flatMap(fn (TeamJoinRequest $request): array => $request->team === null ? [] : [[
+                    'id' => $request->id,
+                    'team_name' => $request->team->name,
+                    'status' => $request->status->value,
+                    'created_at' => $request->created_at->toIso8601String(),
+                ]])->values()->all(),
         ];
     }
 }

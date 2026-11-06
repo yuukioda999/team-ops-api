@@ -5,6 +5,7 @@ namespace App\UseCases\Teams;
 use App\Enums\Sport;
 use App\Enums\TeamRole;
 use App\Models\Team;
+use App\Models\TeamMembership;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -32,7 +33,8 @@ final class CreateTeam
             }
 
             $team = Team::create(['name' => $name, 'sport' => $sport, 'created_by' => $creator->id]);
-            $team->members()->attach($creator->id, ['role' => TeamRole::Representative]);
+            $team->members()->attach($creator->id);
+            TeamMembership::where('team_id', $team->id)->where('user_id', $creator->id)->sole()->grant([TeamRole::Representative]);
 
             return $creator->teams()->whereKey($team->id)->firstOrFail();
         });

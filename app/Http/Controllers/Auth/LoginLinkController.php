@@ -19,7 +19,7 @@ final class LoginLinkController extends Controller
      */
     public function store(RequestLoginLinkRequest $request, RequestLoginLink $requestLoginLink): JsonResponse
     {
-        $requestLoginLink($request->address());
+        $requestLoginLink($request->address(), $request->returnTo());
 
         return new JsonResponse(['message' => 'メールを送信しました'], 202);
     }
@@ -35,15 +35,17 @@ final class LoginLinkController extends Controller
             return new JsonResponse(['message' => ApiErrorResponse::message(419)], 419);
         }
 
-        $user = $consumeLoginLink($request->token());
-        if ($user === null) {
+        $result = $consumeLoginLink($request->token());
+        if ($result === null) {
             return new JsonResponse(['message' => ApiErrorResponse::message(410)], 410);
         }
+        [$user, $returnTo] = $result;
 
         Auth::guard('web')->login($user);
         // セッション固定攻撃を防ぐため、ログインのたびにセッションIDを作り直す(ADR-0008)
         $request->session()->regenerate();
 
-        return (new MeResource($user))->response()->setStatusCode(200);
+        // ログイン後に戻る先(AC-001-19)。画面はここへ進む
+        return new JsonResponse([...(new MeResource($user))->resolve($request), 'return_to' => $returnTo], 200);
     }
 }
