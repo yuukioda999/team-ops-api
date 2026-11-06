@@ -86,8 +86,13 @@ final class ConfirmEmailChange
      */
     private function endOtherSessions(User $user, ?string $currentSessionId): void
     {
-        if (config('session.driver') !== 'database') {
-            return;
+        $driver = (string) config('session.driver');
+        if ($driver === 'array') {
+            return; // テスト用。リクエストをまたいで残るセッションがない
+        }
+        if ($driver !== 'database') {
+            // 黙って抜けると、他の端末のログインが残ったまま変更が終わってしまう
+            throw new \LogicException("Ending other sessions is not implemented for the {$driver} session driver.");
         }
         DB::table((string) config('session.table', 'sessions'))
             ->where('user_id', $user->id)

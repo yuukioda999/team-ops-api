@@ -9,13 +9,11 @@ return [
     'blind_index_key' => env('BLIND_INDEX_KEY'),
 
     /*
-    | デモモード。宛先を .invalid ドメインだけに制限する(notify-relay 側でも同じ制限をかける)。
+    | デモモード。宛先を .invalid ドメインだけに制限する。入力の検査(EmailAddressRequest)、
+    | アウトボックス、notify-relay の3か所で同じ制限をかける。
     */
     'demo_mode' => (bool) env('DEMO_MODE', false),
 
-    /*
-    | Web 画面の URL。メールに書くリンク(ログイン、メール変更の確認)の先頭に使う。
-    */
     /*
     | 信頼するプロキシ(Vite・nginx)のアドレスか範囲。カンマ区切り。回数制限で利用者ごとのIPを
     | 正しく数えるために使う。ここにないアドレスから届いた X-Forwarded-For は使わない。
@@ -23,6 +21,9 @@ return [
     */
     'trusted_proxies' => array_values(array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', ''))))),
 
+    /*
+    | Web 画面の URL。メールに書くリンク(ログイン、メール変更の確認)の先頭に使う。
+    */
     'web_url' => rtrim((string) env('WEB_URL', 'http://localhost:5173'), '/'),
 
     /*

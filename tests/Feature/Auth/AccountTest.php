@@ -5,6 +5,7 @@ namespace Tests\Feature\Auth;
 use App\Models\LoginToken;
 use App\Models\OutboxMessage;
 use App\Models\User;
+use App\UseCases\Auth\ConfirmEmailChange;
 
 /**
  * 001 アカウント(AC-001-08・09・10)。
@@ -203,5 +204,26 @@ class AccountTest extends AuthTestCase
         $this->postJson('/api/me/email-changes', ['new_email' => 'nope'])
             ->assertUnprocessable()
             ->assertJsonPath('errors.new_email.0', '新しいメールアドレスの形式が正しくありません。');
+    }
+
+    public function test_AC_000_05_demo_mode_rejects_a_real_new_address_with_422(): void
+    {
+        $this->logIn('old@example.invalid');
+        config(['team_ops.demo_mode' => true]);
+
+        $this->postJson('/api/me/email-changes', ['new_email' => 'parent@example.com'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.new_email.0', 'この環境では、.invalid で終わるメールアドレスだけ使えます。');
+    }
+
+    public function test_ending_other_sessions_refuses_a_session_driver_it_cannot_clean_up(): void
+    {
+        $user = User::factory()->create(['email' => 'old@example.invalid']);
+        config(['session.driver' => 'file']);
+
+        $endOtherSessions = new \ReflectionMethod(ConfirmEmailChange::class, 'endOtherSessions');
+
+        $this->expectException(\LogicException::class);
+        $endOtherSessions->invoke(app(ConfirmEmailChange::class), $user, null);
     }
 }
