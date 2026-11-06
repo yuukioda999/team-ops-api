@@ -174,7 +174,8 @@ class JoinRequestTest extends InvitationTestCase
         $this->assertSame("http://localhost:5173/teams/{$this->team->id}", $this->messageOf($mail)['url']);
 
         $log = AuditLog::where('action', 'join_request.approved')->sole();
-        $this->assertSame(['user_id' => $parent->id, 'roles' => array_map(fn (TeamRole $r) => $r->value, $send === ['parent', 'coach'] ? [TeamRole::Parent, TeamRole::Coach] : $expected)], $log->details);
+        // MySQL の JSON 列はキーを並べ替えて保存するので、キーの順番には依存しない
+        $this->assertEquals(['user_id' => $parent->id, 'roles' => array_map(fn (TeamRole $r) => $r->value, $send === ['parent', 'coach'] ? [TeamRole::Parent, TeamRole::Coach] : $expected)], $log->details);
     }
 
     /**
