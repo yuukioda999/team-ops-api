@@ -1,0 +1,452 @@
+openapi: 3.1.0
+info:
+  title: team-ops API
+  version: 0.1.0
+  summary: 少年サッカーチーム運営ツールの API(Web 画面から呼ぶ)
+  description: |
+    Web 画面(team-ops-web)だけが呼ぶ API です。Web 画面の型はこのファイルから生成します。
+
+    ## 認証(ADR-0008)
+    Laravel Sanctum の SPA 認証です。Web 画面と同じオリジンから Cookie のセッションで呼びます。
+    1. `GET /api/sanctum/csrf-cookie` で `XSRF-TOKEN` Cookie を受け取る
+    2. 変更を伴うリクエストには、その値を `X-XSRF-TOKEN` ヘッダーに入れる
+    3. ログインはメールのリンク(マジックリンク)で行う。パスワードはない
+
+    ## チーム(ADR-0009)
+    チームのデータはすべて `/api/teams/{team}` の下にあります。所属していないチームは、存在していても 404 です。
+
+    ## エラー
+    すべて `{"message": "利用者向けの文言"}` の形です。422 のときだけ、項目ごとの `errors` が付きます。
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:5173
+    description: ローカル(Vite が /api を API に転送する)
+security:
+  - session: []
+tags:
+  - name: auth
+    description: ログインとアカウント
+  - name: teams
+    description: チーム
+
+paths:
+  /api/sanctum/csrf-cookie:
+    get:
+      tags: [auth]
+      operationId: getCsrfCookie
+      summary: CSRF 対策の Cookie を受け取る
+      security: []
+      responses:
+        '204':
+          description: XSRF-TOKEN Cookie を設定した
+
+  /api/auth/login-links:
+    post:
+      tags: [auth]
+      operationId: requestLoginLink
+      summary: ログイン用リンクをメールで送る
+      description: |
+        登録済みかどうかにかかわらず、同じ応答を返します(AC-001-01・02)。
+        同じメールアドレスで1時間に6回以上要求すると 429 になり、メールは送りません(AC-001-05)。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailInput'
+      responses:
+        '202':
+          description: メールを送った(送ることにした)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/auth/login-links/consume:
+    post:
+      tags: [auth]
+      operationId: consumeLoginLink
+      summary: メールのリンクでログインする
+      description: |
+        リンクは15分で失効し、1回だけ使えます(AC-001-03・04)。
+        Web と同じオリジンからでない呼び出し(セッションがない)は 419 になり、リンクは使用済みになりません。
+        未登録のメールアドレスなら、このときアカウントを作ります。`needs_display_name` が true なら表示名の入力画面に進みます。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenInput'
+      responses:
+        '200':
+          description: ログインした
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '410':
+          $ref: '#/components/responses/LinkExpired'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: ログアウトする
+      responses:
+        '204':
+          description: ログアウトした(AC-001-06)
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+
+  /api/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: ログイン中の利用者と、所属するチームの一覧
+      description: どのチームにも所属していなければ `teams` は空です(AC-001-14)。
+      responses:
+        '200':
+          description: 利用者の情報
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    patch:
+      tags: [auth]
+      operationId: updateMe
+      summary: 表示名を登録・変更する
+      description: 初回の登録では、これでアカウントの登録が完了します(AC-001-08)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisplayNameInput'
+      responses:
+        '200':
+          description: 更新後の利用者の情報
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/me/email-changes:
+    post:
+      tags: [auth]
+      operationId: requestEmailChange
+      summary: メールアドレスの変更を申請する
+      description: |
+        新しいアドレスに確認メールを送ります。リンクを開くまでは旧アドレスのままです(AC-001-09)。
+        前の申請のリンクは、この時点で使えなくなります。今と同じアドレスは 422(`errors.new_email`)です。
+        新しいアドレスが別のアカウントで使われていても同じ応答を返し、そのアドレスには変更できない旨だけを知らせます(AC-001-15)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewEmailInput'
+      responses:
+        '202':
+          description: 確認メールを送った
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/me/email-changes/consume:
+    post:
+      tags: [auth]
+      operationId: confirmEmailChange
+      summary: 確認メールのリンクでメールアドレスの変更を確定する
+      description: |
+        申請した本人がログインしているときだけ確定できます(新しいアドレスを打ち間違えても、その宛先の持ち主に乗っ取られないため)。
+        他人の申請のリンクは、期限切れと同じ 410 になり、使用済みにもなりません。
+        変更すると、旧アドレスに「メールアドレスが変更されました」と知らせ、この端末以外のセッションと、まだ使われていない旧アドレス宛てのリンクを無効にします(AC-001-10・16)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenInput'
+      responses:
+        '200':
+          description: 変更した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '409':
+          description: 確認の間に、新しいアドレスが別のアカウントで使われた(AC-001-17)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '410':
+          $ref: '#/components/responses/LinkExpired'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/teams:
+    post:
+      tags: [teams]
+      operationId: createTeam
+      summary: チームを作成する
+      description: |
+        作成者がそのチームの代表になります。1人が代表として作成できるのは5チームまでです(AC-001-11・12)。
+        上限を超えたときは 422 で、理由は `errors.team` に入ります。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTeamInput'
+      responses:
+        '201':
+          description: 作成した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [teams]
+      operationId: getTeam
+      summary: チームの情報
+      responses:
+        '200':
+          description: チームの情報と、自分の役割
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: team-ops-api-session
+      description: Sanctum の SPA 認証のセッション Cookie。変更を伴うリクエストには X-XSRF-TOKEN ヘッダーも必要
+
+  parameters:
+    TeamId:
+      name: team
+      in: path
+      required: true
+      description: チームID(ULID)
+      schema:
+        type: string
+        pattern: '^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$'
+
+  schemas:
+    Message:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: 利用者向けの文言
+
+    ValidationError:
+      type: object
+      additionalProperties: false
+      required: [message, errors]
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          description: 項目名ごとのエラーの文言
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    EmailInput:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: 半角(ASCII)のアドレスだけ。前後の空白は除き、小文字にそろえて扱う
+
+    NewEmailInput:
+      type: object
+      required: [new_email]
+      properties:
+        new_email:
+          type: string
+          format: email
+          maxLength: 254
+          description: 半角(ASCII)のアドレスだけ。前後の空白は除き、小文字にそろえて扱う
+
+    TokenInput:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: メールのリンクの token の値
+          maxLength: 128
+
+    DisplayNameInput:
+      type: object
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 30
+          description: 前後の空白(全角を含む)は取り除く。改行などの制御文字は使えない
+
+    CreateTeamInput:
+      type: object
+      required: [name, sport]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: 前後の空白(全角を含む)は取り除く。改行などの制御文字は使えない
+        sport:
+          $ref: '#/components/schemas/Sport'
+
+    Sport:
+      type: string
+      enum: [soccer, baseball, other]
+
+    TeamRole:
+      type: string
+      description: 001 では representative だけ。004 で増やす
+      enum: [representative]
+
+    Me:
+      type: object
+      additionalProperties: false
+      required: [email, display_name, needs_display_name, teams]
+      properties:
+        email:
+          type: string
+          format: email
+        display_name:
+          type: [string, 'null']
+          description: 初回ログイン直後は null
+        needs_display_name:
+          type: boolean
+          description: true なら表示名の入力画面に進む
+        teams:
+          type: array
+          items:
+            $ref: '#/components/schemas/Team'
+
+    Team:
+      type: object
+      additionalProperties: false
+      required: [id, name, sport, role]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sport:
+          $ref: '#/components/schemas/Sport'
+        role:
+          $ref: '#/components/schemas/TeamRole'
+
+  responses:
+    Unauthenticated:
+      description: ログインしていない、またはセッションが切れた(AC-000-02、AC-001-07)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    NotFound:
+      description: 存在しない、または所属していないチーム(区別しない。AC-000-01)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    LinkExpired:
+      description: リンクの期限切れ・使用済み・不正(区別しない。AC-001-04)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    CsrfExpired:
+      description: CSRF のトークンがない、または古い。csrf-cookie を取り直して再送する
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    ValidationFailed:
+      description: 入力値が仕様に合わない(AC-000-05)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+    TooManyRequests:
+      description: 回数の上限を超えた。Retry-After 秒後に再試行できる
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'

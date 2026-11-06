@@ -4,8 +4,6 @@ namespace Database\Factories;
 
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 
 /**
  * @extends Factory<User>
@@ -13,33 +11,23 @@ use Illuminate\Support\Str;
 class UserFactory extends Factory
 {
     /**
-     * The current password being used by the factory.
-     */
-    protected static ?string $password;
-
-    /**
-     * Define the model's default state.
+     * テスト用の宛先は .invalid ドメインにし、実在のアドレスに送らない。
      *
      * @return array<string, mixed>
      */
     public function definition(): array
     {
         return [
-            'name' => fake()->name(),
-            'email' => fake()->unique()->safeEmail(),
-            'email_verified_at' => now(),
-            'password' => static::$password ??= Hash::make('password'),
-            'remember_token' => Str::random(10),
+            'email' => fake()->unique()->userName().'@example.invalid',
+            'display_name' => fake()->lastName().fake()->firstName(),
         ];
     }
 
     /**
-     * Indicate that the model's email address should be unverified.
+     * 初回ログイン直後で、表示名をまだ登録していない状態。
      */
-    public function unverified(): static
+    public function withoutDisplayName(): static
     {
-        return $this->state(fn (array $attributes) => [
-            'email_verified_at' => null,
-        ]);
+        return $this->state(fn () => ['display_name' => null]);
     }
 }
