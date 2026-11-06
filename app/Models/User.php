@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\TeamRole;
 use App\Models\Concerns\HasEmailBlindIndex;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -57,8 +58,29 @@ class User extends Authenticatable
         return $this->belongsToMany(Team::class, 'team_memberships')
             ->using(TeamMembership::class)
             ->as('membership')
-            ->withPivot('role')
+            ->withPivot('id')
             ->withTimestamps();
+    }
+
+    /**
+     * このチームで持っている役割。所属していなければ空(ADR-0011)。
+     * キャッシュしない。役割が変わったら次のリクエストから新しい役割で判定する(AC-004-10)。
+     *
+     * @return list<TeamRole>
+     */
+    public function rolesIn(Team $team): array
+    {
+        $membership = TeamMembership::where('team_id', $team->id)->where('user_id', $this->id)->first();
+
+        return $membership?->roleList() ?? [];
+    }
+
+    /**
+     * @return HasMany<TeamJoinRequest, $this>
+     */
+    public function joinRequests(): HasMany
+    {
+        return $this->hasMany(TeamJoinRequest::class);
     }
 
     /**

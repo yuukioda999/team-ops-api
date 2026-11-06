@@ -25,13 +25,14 @@ class TeamTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('name', 'つくばFC U-10')
             ->assertJsonPath('sport', 'soccer')
-            ->assertJsonPath('role', 'representative');
+            ->assertJsonPath('roles', ['representative'])
+            ->assertJsonPath('permissions', ['manage_invitation' => true, 'review_join_requests' => true]);
 
         $team = Team::findOrFail((string) $response->json('id'));
         $this->assertSame($user->id, $team->created_by);
         $membership = TeamMembership::where('team_id', $team->id)->sole();
         $this->assertSame($user->id, $membership->user_id);
-        $this->assertSame(TeamRole::Representative, $membership->role);
+        $this->assertSame([TeamRole::Representative], $membership->roleList());
     }
 
     /**
@@ -125,7 +126,7 @@ class TeamTest extends TestCase
 
         $this->actingAs($user)->getJson('/api/me')
             ->assertOk()
-            ->assertJsonPath('teams', [['id' => $team->id, 'name' => 'チームA', 'sport' => 'soccer', 'role' => 'representative']]);
+            ->assertJsonPath('teams', [['id' => $team->id, 'name' => 'チームA', 'sport' => 'soccer', 'roles' => ['representative']]]);
     }
 
     public function test_AC_001_14_someone_in_no_team_gets_an_empty_list(): void

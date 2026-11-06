@@ -21,13 +21,14 @@ final class RequestLoginLink
 
     /**
      * @param  string  $email  正規化済みのメールアドレス(EmailAddressRequest::address)
+     * @param  string|null  $returnTo  ログイン後に戻る先(検査済み、AC-001-19)。メールの URL には入れず、トークンと一緒に保存する
      */
-    public function __invoke(string $email): void
+    public function __invoke(string $email, ?string $returnTo = null): void
     {
-        DB::transaction(function () use ($email): void {
+        DB::transaction(function () use ($email, $returnTo): void {
             $user = User::whereEmail($email)->first();
             $email = $user !== null ? $user->email : $email;
-            [$token, $plain] = OneTimeToken::issue(LoginTokenPurpose::Login, $email, $user?->id);
+            [$token, $plain] = OneTimeToken::issue(LoginTokenPurpose::Login, $email, $user?->id, $returnTo);
 
             $this->outbox->queue(
                 kind: 'login_link',

@@ -2,10 +2,12 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Gate;
 use LogicException;
 
 /**
@@ -28,11 +30,18 @@ final class TeamResource extends JsonResource
             throw new LogicException('TeamResource needs a team loaded through User::teams().');
         }
 
+        $user = $request->user();
+
         return [
             'id' => $this->resource->id,
             'name' => $this->resource->name,
             'sport' => $this->resource->sport->value,
-            'role' => $membership->role->value,
+            'roles' => array_map(fn (TeamRole $role) => $role->value, $membership->roleList()),
+            // 画面がボタンや導線を出し分けるため。判定は TeamPolicy と同じもの(ADR-0011)
+            'permissions' => [
+                'manage_invitation' => $user !== null && Gate::forUser($user)->allows('manageInvitation', $this->resource),
+                'review_join_requests' => $user !== null && Gate::forUser($user)->allows('reviewJoinRequests', $this->resource),
+            ],
         ];
     }
 }

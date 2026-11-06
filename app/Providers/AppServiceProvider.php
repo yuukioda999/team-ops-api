@@ -132,6 +132,10 @@ class AppServiceProvider extends ServiceProvider
             Limit::perHour($perEmail)->by('email-change:email:'.$emailKey($request, 'new_email')),
         ]);
 
+        // 招待リンクのチーム名の照会(ログイン不要)と、参加申請
+        RateLimiter::for('invitation-preview', fn (Request $request) => Limit::perMinute(30)->by('invitation-preview:ip:'.$request->ip()));
+        RateLimiter::for('join-request', fn (Request $request) => Limit::perMinute(10)->by('join-request:user:'.$request->user()?->getAuthIdentifier()));
+
         // トークンの総当たりを防ぐ(トークンは256ビットなので、主に負荷の対策)
         RateLimiter::for('token-consume', fn (Request $request) => Limit::perMinute(30)->by('token-consume:ip:'.$request->ip()));
     }

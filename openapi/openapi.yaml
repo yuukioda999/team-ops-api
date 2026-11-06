@@ -30,6 +30,8 @@ tags:
     description: ログインとアカウント
   - name: teams
     description: チーム
+  - name: invitations
+    description: 招待リンクと参加申請(002)
 
 paths:
   /api/sanctum/csrf-cookie:
@@ -50,13 +52,15 @@ paths:
       description: |
         登録済みかどうかにかかわらず、同じ応答を返します(AC-001-01・02)。
         同じメールアドレスで1時間に6回以上要求すると 429 になり、メールは送りません(AC-001-05)。
+        `return_to` を付けると、リンクでログインしたときの応答で同じ値を返します(AC-001-19)。
+        受け付けるのは `/join?token=...` と `/settings/email/verify?token=...` の形だけで、それ以外は無視します。
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EmailInput'
+              $ref: '#/components/schemas/LoginLinkInput'
       responses:
         '202':
           description: メールを送った(送ることにした)
@@ -93,7 +97,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Me'
+                $ref: '#/components/schemas/LoginResult'
         '410':
           $ref: '#/components/responses/LinkExpired'
         '419':
@@ -273,6 +277,236 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/teams/{team}/invitation:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [invitations]
+      operationId: getInvitation
+      summary: 今の招待リンク
+      description: 代表・役員だけ(AC-002-01・04)。有効なリンクがなければ `invitation` は null です。
+      responses:
+        '200':
+          description: 今の招待リンク
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [invitations]
+      operationId: issueInvitation
+      summary: 招待リンクを発行する
+      description: 有効期限は7日。チームで有効なリンクは1つなので、古いリンクは無効になります(AC-002-01・02)。
+      responses:
+        '201':
+          description: 発行した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+    delete:
+      tags: [invitations]
+      operationId: revokeInvitation
+      summary: 招待リンクを無効にする
+      description: 以後そのリンクからは申請できません(AC-002-03)。有効なリンクがなくても 204 です。
+      responses:
+        '204':
+          description: 無効にした
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+
+  /api/teams/{team}/join-requests:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [invitations]
+      operationId: listJoinRequests
+      summary: 承認待ちの申請の一覧
+      description: 代表・役員だけ。申請日時の古い順です(AC-002-11)。
+      responses:
+        '200':
+          description: 承認待ちの申請
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [join_requests]
+                properties:
+                  join_requests:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JoinRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/teams/{team}/join-requests/{joinRequest}/approve:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/JoinRequestId'
+    post:
+      tags: [invitations]
+      operationId: approveJoinRequest
+      summary: 申請を承認する
+      description: 役割は保護者・コーチから選びます(複数可)。役員・代表は 422 です(AC-002-12・14)。承認されたことを本人にメールで知らせます。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveJoinRequestInput'
+      responses:
+        '204':
+          description: 承認した
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 承認待ちの申請がない(承認・却下済みを含む)、または所属していないチーム
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/join-requests/{joinRequest}/reject:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/JoinRequestId'
+    post:
+      tags: [invitations]
+      operationId: rejectJoinRequest
+      summary: 申請を却下する
+      description: 申請者には通知しません。申請者の画面には「承認されませんでした」と表示されます(AC-002-13)。
+      responses:
+        '204':
+          description: 却下した
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 承認待ちの申請がない(承認・却下済みを含む)、または所属していないチーム
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+
+  /api/invitations/preview:
+    post:
+      tags: [invitations]
+      operationId: previewInvitation
+      summary: 招待リンクのチーム名
+      description: |
+        ログインは不要です(AC-002-05)。トークンは URL ではなく本文で渡します。
+        期限切れ・無効化・存在しないリンクは、区別せず 410 です(AC-002-07)。
+        ログイン中なら `relation` に、そのチームとの関係(member / pending / none)が入ります。メンバーなら `team_id` も入ります(AC-002-08)。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenInput'
+      responses:
+        '200':
+          description: リンクのチーム
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationPreview'
+        '410':
+          $ref: '#/components/responses/InvalidInvitation'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/invitations/applications:
+    post:
+      tags: [invitations]
+      operationId: applyToTeam
+      summary: 招待リンクから参加を申請する
+      description: |
+        申請は「承認待ち」になり、代表・役員にメールで知らせます(AC-002-06)。表示名はアカウントの表示名になります。
+        すでに承認待ちなら新しい申請は作らず 200 です(AC-002-09)。却下・取り消しのあとは再申請できます(AC-002-16)。
+        すでにメンバーなら 409 で、`team_id` にチームのIDが入ります(AC-002-08)。
+        1つのリンクに24時間で50件を超える申請があると 429 です(AC-002-10)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinRequestInput'
+      responses:
+        '201':
+          description: 申請した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestSubmitted'
+        '200':
+          description: すでに承認待ちの申請がある
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestSubmitted'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          description: すでにこのチームのメンバー
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [message, team_id]
+                properties:
+                  message:
+                    type: string
+                  team_id:
+                    type: string
+        '410':
+          $ref: '#/components/responses/InvalidInvitation'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
 components:
   securitySchemes:
     session:
@@ -290,6 +524,13 @@ components:
       schema:
         type: string
         pattern: '^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$'
+    JoinRequestId:
+      name: joinRequest
+      in: path
+      required: true
+      description: 参加申請のID
+      schema:
+        type: integer
 
   schemas:
     Message:
@@ -316,7 +557,7 @@ components:
             items:
               type: string
 
-    EmailInput:
+    LoginLinkInput:
       type: object
       required: [email]
       properties:
@@ -325,6 +566,10 @@ components:
           format: email
           maxLength: 254
           description: 半角(ASCII)のアドレスだけ。前後の空白は除き、小文字にそろえて扱う
+        return_to:
+          type: [string, 'null']
+          maxLength: 512
+          description: ログイン後に戻る先(AC-001-19)。`/join?token=...` と `/settings/email/verify?token=...` の形だけを受け付け、それ以外は無視する
 
     NewEmailInput:
       type: object
@@ -373,13 +618,18 @@ components:
 
     TeamRole:
       type: string
-      description: 001 では representative だけ。004 で増やす
-      enum: [representative]
+      description: 代表・役員・コーチ・保護者。1人が複数持てる(ADR-0011)
+      enum: [representative, officer, coach, parent]
+
+    JoinRequestStatus:
+      type: string
+      description: 承認待ち・承認・却下・自動取り消し
+      enum: [pending, approved, rejected, cancelled]
 
     Me:
       type: object
       additionalProperties: false
-      required: [email, display_name, needs_display_name, teams]
+      required: [email, display_name, needs_display_name, teams, join_requests]
       properties:
         email:
           type: string
@@ -393,12 +643,27 @@ components:
         teams:
           type: array
           items:
-            $ref: '#/components/schemas/Team'
+            $ref: '#/components/schemas/TeamSummary'
+        join_requests:
+          type: array
+          description: 自分の参加申請のうち、承認待ちと承認されなかったもの(AC-002-09・13)。承認されたものは teams に入る
+          items:
+            $ref: '#/components/schemas/MyJoinRequest'
 
-    Team:
+    LoginResult:
+      allOf:
+        - $ref: '#/components/schemas/Me'
+        - type: object
+          required: [return_to]
+          properties:
+            return_to:
+              type: [string, 'null']
+              description: ログイン後に進む先(AC-001-19)。ログイン用リンクの要求で受け付けた値
+
+    TeamSummary:
       type: object
       additionalProperties: false
-      required: [id, name, sport, role]
+      required: [id, name, sport, roles]
       properties:
         id:
           type: string
@@ -406,12 +671,173 @@ components:
           type: string
         sport:
           $ref: '#/components/schemas/Sport'
-        role:
-          $ref: '#/components/schemas/TeamRole'
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamRole'
+
+    Team:
+      type: object
+      additionalProperties: false
+      required: [id, name, sport, roles, permissions]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sport:
+          $ref: '#/components/schemas/Sport'
+        roles:
+          type: array
+          description: 自分の役割
+          items:
+            $ref: '#/components/schemas/TeamRole'
+        permissions:
+          type: object
+          additionalProperties: false
+          description: 画面の出し分け用。判定は API の TeamPolicy と同じ
+          required: [manage_invitation, review_join_requests]
+          properties:
+            manage_invitation:
+              type: boolean
+            review_join_requests:
+              type: boolean
+
+    MyJoinRequest:
+      type: object
+      additionalProperties: false
+      required: [id, team_name, status, created_at]
+      properties:
+        id:
+          type: integer
+        team_name:
+          type: string
+        status:
+          $ref: '#/components/schemas/JoinRequestStatus'
+        created_at:
+          type: string
+          format: date-time
+
+    Invitation:
+      type: object
+      additionalProperties: false
+      required: [url, expires_at]
+      properties:
+        url:
+          type: string
+          description: 招待リンク。画面はこの URL から QR コードを作る
+        expires_at:
+          type: string
+          format: date-time
+
+    InvitationEnvelope:
+      type: object
+      additionalProperties: false
+      required: [invitation]
+      properties:
+        invitation:
+          oneOf:
+            - $ref: '#/components/schemas/Invitation'
+            - type: 'null'
+
+    InvitationPreview:
+      type: object
+      additionalProperties: false
+      required: [team, relation, team_id]
+      properties:
+        team:
+          type: object
+          additionalProperties: false
+          required: [name, sport]
+          properties:
+            name:
+              type: string
+            sport:
+              $ref: '#/components/schemas/Sport'
+        relation:
+          type: [string, 'null']
+          enum: [member, pending, none, null]
+          description: ログイン中のときだけ。そのチームとの関係
+        team_id:
+          type: [string, 'null']
+          description: メンバーのときだけ。チームの画面へ進むため
+
+    JoinRequestInput:
+      type: object
+      required: [token, display_name]
+      properties:
+        token:
+          type: string
+          maxLength: 128
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 30
+          description: アカウントの表示名になる(全チーム共通)
+        message:
+          type: [string, 'null']
+          maxLength: 100
+          description: ひとこと(任意)。例:「○年 △△の母です」
+
+    JoinRequestSubmitted:
+      type: object
+      additionalProperties: false
+      required: [status, team]
+      properties:
+        status:
+          type: string
+          enum: [pending]
+        team:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name:
+              type: string
+
+    JoinRequest:
+      type: object
+      additionalProperties: false
+      required: [id, display_name, message, created_at]
+      properties:
+        id:
+          type: integer
+        display_name:
+          type: [string, 'null']
+        message:
+          type: [string, 'null']
+        created_at:
+          type: string
+          format: date-time
+
+    ApproveJoinRequestInput:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items:
+            type: string
+            enum: [parent, coach]
 
   responses:
     Unauthenticated:
       description: ログインしていない、またはセッションが切れた(AC-000-02、AC-001-07)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    Forbidden:
+      description: この操作の権限がない(代表・役員だけの操作など。AC-002-04)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    InvalidInvitation:
+      description: 招待リンクが期限切れ・無効化・存在しない(区別しない。AC-002-07)
       content:
         application/json:
           schema:

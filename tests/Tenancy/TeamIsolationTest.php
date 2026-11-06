@@ -2,10 +2,13 @@
 
 namespace Tests\Tenancy;
 
+use App\Enums\JoinRequestStatus;
 use App\Models\Team;
+use App\Models\TeamJoinRequest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Route;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Tests\TestCase;
 
@@ -28,6 +31,50 @@ class TeamIsolationTest extends TestCase
         $existing->assertNotFound();
         $notExisting->assertNotFound();
         $this->assertSame($notExisting->getContent(), $existing->getContent());
+    }
+
+    public function test_AC_000_01_a_pending_applicant_cannot_see_the_team_or_its_applications(): void
+    {
+        Queue::fake();
+        $representative = User::factory()->create();
+        $team = Team::factory()->withRepresentative()->create(['created_by' => $representative->id]);
+        $url = (string) $this->actingAs($representative)->postJson("/api/teams/{$team->id}/invitation")->json('invitation.url');
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+        $applicant = User::factory()->create();
+        $this->actingAs($applicant)->postJson('/api/invitations/applications', ['token' => $query['token'], 'display_name' => '申請者'])->assertCreated();
+
+        foreach (["/api/teams/{$team->id}", "/api/teams/{$team->id}/join-requests", "/api/teams/{$team->id}/invitation"] as $path) {
+            $this->actingAs($applicant)->getJson($path)->assertNotFound();
+        }
+    }
+
+    public function test_AC_000_01_another_teams_officer_cannot_review_this_teams_applications(): void
+    {
+        Queue::fake();
+        $team = Team::factory()->withRepresentative()->create();
+        $otherRepresentative = User::factory()->create();
+        Team::factory()->withRepresentative()->create(['created_by' => $otherRepresentative->id]);
+        $applicant = User::factory()->create();
+        $request = TeamJoinRequest::create(['team_id' => $team->id, 'user_id' => $applicant->id, 'status' => JoinRequestStatus::Pending, 'pending_user_id' => $applicant->id]);
+
+        $this->actingAs($otherRepresentative)->getJson("/api/teams/{$team->id}/join-requests")->assertNotFound();
+        $this->actingAs($otherRepresentative)->postJson("/api/teams/{$team->id}/join-requests/{$request->id}/approve", ['roles' => ['parent']])->assertNotFound();
+        $this->assertSame(JoinRequestStatus::Pending, $request->fresh()?->status);
+    }
+
+    public function test_AC_000_01_an_application_of_another_team_is_not_found_through_this_team(): void
+    {
+        Queue::fake();
+        $representative = User::factory()->create();
+        $mine = Team::factory()->withRepresentative()->create(['created_by' => $representative->id]);
+        $other = Team::factory()->withRepresentative()->create();
+        $applicant = User::factory()->create();
+        $request = TeamJoinRequest::create(['team_id' => $other->id, 'user_id' => $applicant->id, 'status' => JoinRequestStatus::Pending, 'pending_user_id' => $applicant->id]);
+
+        // 自分のチームのURLに、他チームの申請IDを入れても承認できない
+        $this->actingAs($representative)->postJson("/api/teams/{$mine->id}/join-requests/{$request->id}/approve", ['roles' => ['parent']])->assertNotFound();
+        $this->actingAs($representative)->postJson("/api/teams/{$mine->id}/join-requests/{$request->id}/reject")->assertNotFound();
+        $this->assertSame(JoinRequestStatus::Pending, $request->fresh()?->status);
     }
 
     public function test_AC_000_01_a_malformed_team_id_returns_the_same_404(): void
@@ -65,6 +112,8 @@ class TeamIsolationTest extends TestCase
         'GET api/sanctum/csrf-cookie' => false,
         'POST api/auth/login-links' => false,
         'POST api/auth/login-links/consume' => false,
+        'POST api/invitations/preview' => false,
+        'POST api/invitations/applications' => true,
         'POST api/auth/logout' => true,
         'GET api/me' => true,
         'PATCH api/me' => true,

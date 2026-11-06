@@ -17,13 +17,14 @@ final class OneTimeToken
     /**
      * @return array{LoginToken, string} 保存した行と、メールに書く平文のトークン
      */
-    public static function issue(LoginTokenPurpose $purpose, string $email, ?int $userId): array
+    public static function issue(LoginTokenPurpose $purpose, string $email, ?int $userId, ?string $returnTo = null): array
     {
         $plain = bin2hex(random_bytes(32));
         $token = LoginToken::create([
             'purpose' => $purpose,
             'email' => $email,
             'user_id' => $userId,
+            'return_to' => $returnTo,
             'token_hash' => LoginToken::hashToken($plain),
             'expires_at' => now()->addMinutes((int) config('team_ops.login_link.ttl_minutes')),
         ]);
