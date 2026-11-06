@@ -50,23 +50,60 @@ class TeamIsolationTest extends TestCase
     }
 
     /**
-     * ADR-0009:チームのデータを扱うルートは、すべて /api/teams/{team} の下に置き、ログインを必須にする。
-     * App\Http\Controllers\Teams の Controller をこの外のルートで使うと、このテストが落ちる
-     * (チームを作る POST /api/teams だけは例外)。
+     * チームの外に置いてよいルート。チームのデータを返さないものだけ。
+     * ここにないルートは、すべて /api/teams/{team} の下に置く(ADR-0009)。
+     * 新しいルートをチームの外に足すときは、チームのデータを返さないことを確かめてからここに足す。
+     *
+     * @var array<string, bool> "メソッド URI" => ログインが必要か
      */
-    public function test_AC_000_01_every_team_scoped_route_is_under_the_team_prefix_and_requires_login(): void
-    {
-        $teamRoutes = collect(RouteFacade::getRoutes()->getRoutes())
-            ->filter(fn (Route $route) => str_starts_with($route->getActionName(), 'App\\Http\\Controllers\\Teams\\'));
+    private const array ROUTES_OUTSIDE_TEAMS = [
+        'GET /' => false,
+        'GET up' => false,
+        'GET storage/{path}' => false,
+        'PUT storage/{path}' => false,
+        'GET api/health' => false,
+        'GET api/sanctum/csrf-cookie' => false,
+        'POST api/auth/login-links' => false,
+        'POST api/auth/login-links/consume' => false,
+        'POST api/auth/logout' => true,
+        'GET api/me' => true,
+        'PATCH api/me' => true,
+        'POST api/me/email-changes' => true,
+        'POST api/me/email-changes/consume' => true,
+        'POST api/teams' => true,
+    ];
 
-        $this->assertNotEmpty($teamRoutes);
-        foreach ($teamRoutes as $route) {
-            $label = implode('|', $route->methods()).' '.$route->uri();
-            $this->assertContains('auth:sanctum', $route->gatherMiddleware(), "{$label} must require login");
-            if ($route->uri() === 'api/teams' && in_array('POST', $route->methods(), true)) {
-                continue;
+    /**
+     * ADR-0009:チームのデータを扱うルートは、すべて /api/teams/{team} の下に置き、ログインを必須にする。
+     * Controller の名前空間によらず、許可リストにないルートがチームの外にあれば、このテストが落ちる。
+     */
+    public function test_AC_000_01_every_route_outside_the_allowlist_is_under_the_team_prefix_and_requires_login(): void
+    {
+        $routes = collect(RouteFacade::getRoutes()->getRoutes());
+        $this->assertNotEmpty($routes->filter(fn (Route $route) => str_starts_with($route->uri(), 'api/teams/{team}')));
+
+        foreach ($routes as $route) {
+            foreach (array_diff($route->methods(), ['HEAD']) as $method) {
+                $label = "{$method} {$route->uri()}";
+                $requiresLogin = in_array('auth:sanctum', $route->gatherMiddleware(), true);
+
+                if (array_key_exists($label, self::ROUTES_OUTSIDE_TEAMS)) {
+                    if (self::ROUTES_OUTSIDE_TEAMS[$label]) {
+                        $this->assertTrue($requiresLogin, "{$label} must require login");
+                    }
+
+                    continue;
+                }
+
+                $this->assertStringStartsWith('api/teams/{team}', $route->uri(), "{$label} is outside api/teams/{team}; add it to the allowlist only if it returns no team data");
+                $this->assertTrue($requiresLogin, "{$label} must require login");
             }
-            $this->assertStringStartsWith('api/teams/{team}', $route->uri(), "{$label} must be under api/teams/{team}");
+        }
+
+        // 消したルートが許可リストに残ると、次にルートを足すときの確認が抜けやすいので、残さない
+        $existing = $routes->flatMap(fn (Route $route) => array_map(fn (string $method) => "{$method} {$route->uri()}", $route->methods()));
+        foreach (array_keys(self::ROUTES_OUTSIDE_TEAMS) as $label) {
+            $this->assertContains($label, $existing, "{$label} is in the allowlist but no longer exists");
         }
     }
 }

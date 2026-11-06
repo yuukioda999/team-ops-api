@@ -6,8 +6,10 @@ use App\Models\Team;
 use App\Models\User;
 use App\Support\Crypto\BlindIndex;
 use App\Support\NotifyRelay\EmailOutbox;
+use App\Support\NotifyRelay\RecipientRestriction;
 use App\Support\NotifyRelay\RelayClient;
 use App\Support\Queue\RedactingFailedJobProvider;
+use App\Support\Security\ProductionSettings;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -28,8 +30,19 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(
             BlindIndex::class,
-            fn () => BlindIndex::fromConfig(config('team_ops.blind_index_key')),
+            function (Application $app) {
+                ProductionSettings::refusePublishedKey('BLIND_INDEX_KEY', config('team_ops.blind_index_key'), (string) $app->environment());
+
+                return BlindIndex::fromConfig(config('team_ops.blind_index_key'));
+            },
         );
+
+        // 暗号化(Cookie、暗号化した項目)を初めて使うときに、公開済みのローカル用の鍵でないか確かめる
+        $this->app->extend('encrypter', function (mixed $encrypter, Application $app) {
+            ProductionSettings::refusePublishedAppKeys(config('app.key'), (array) config('app.previous_keys'), (string) $app->environment());
+
+            return $encrypter;
+        });
 
         $this->app->singleton(
             RelayClient::class,
@@ -41,7 +54,7 @@ class AppServiceProvider extends ServiceProvider
         );
         $this->app->singleton(
             EmailOutbox::class,
-            fn () => new EmailOutbox((bool) config('team_ops.demo_mode')),
+            fn () => new EmailOutbox(RecipientRestriction::invalidOnly()),
         );
 
         // 失敗したジョブの記録にも、個人情報を伏せた例外を保存する(AC-000-04)
@@ -67,8 +80,11 @@ class AppServiceProvider extends ServiceProvider
         // Authorization: Bearer を付けたリクエストもトークンとしては扱わない
         Sanctum::getAccessTokenFromRequestUsing(fn () => null);
 
-        // 回数制限で利用者のIPを数えるため、信頼するプロキシだけから X-Forwarded-For を受け取る
-        TrustProxies::at((array) config('team_ops.trusted_proxies'));
+        // 回数制限で利用者のIPを数えるため、信頼するプロキシだけから X-Forwarded-For を受け取る。
+        // ホスト名・ポート・パスの X-Forwarded-* は信じない(将来 url() で作るリンクを書き換えられないように)
+        $trustedProxies = (array) config('team_ops.trusted_proxies');
+        TrustProxies::at($trustedProxies);
+        TrustProxies::withHeaders(Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_PROTO);
 
         $this->configureRateLimiting();
         $this->bindTeamToMembership();
