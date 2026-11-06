@@ -26,7 +26,7 @@ final class EmailOutbox
 
     private const int MAX_RECIPIENTS = 1000;
 
-    public function __construct(private readonly bool $demoMode) {}
+    public function __construct(private readonly bool $invalidRecipientsOnly) {}
 
     /**
      * @param  string  $kind  依頼の種類(例:login_link)。ログと集計に使う
@@ -114,8 +114,8 @@ final class EmailOutbox
             if (strlen($email) > 254 || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
                 $fail('a recipient address is not valid');
             }
-            if ($this->demoMode && ! str_ends_with(strtolower($email), '.invalid')) {
-                $fail('demo mode accepts only .invalid recipients');
+            if ($this->invalidRecipientsOnly && ! str_ends_with(strtolower($email), '.invalid')) {
+                $fail('only .invalid recipients are accepted (RECIPIENTS_INVALID_ONLY or DEMO_MODE)');
             }
         }
     }

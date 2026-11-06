@@ -22,9 +22,9 @@ class EmailOutboxTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function outbox(bool $demo = false): EmailOutbox
+    private function outbox(bool $invalidOnly = false): EmailOutbox
     {
-        return new EmailOutbox($demo);
+        return new EmailOutbox($invalidOnly);
     }
 
     private function queueLoginLink(EmailOutbox $outbox, string $key = 'login-link:1', string $email = 'coach@example.invalid'): OutboxMessage
@@ -167,24 +167,24 @@ class EmailOutboxTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_demo_mode_refuses_real_addresses_without_naming_them(): void
+    public function test_invalid_recipients_only_refuses_real_addresses_without_naming_them(): void
     {
         Queue::fake();
 
         try {
-            $this->queueLoginLink($this->outbox(demo: true), email: 'parent@example.com');
-            $this->fail('A real address was accepted in demo mode');
+            $this->queueLoginLink($this->outbox(invalidOnly: true), email: 'parent@example.com');
+            $this->fail('A real address was accepted with invalid recipients only');
         } catch (InvalidArgumentException $e) {
             $this->assertStringNotContainsString('parent@example.com', $e->getMessage());
         }
         $this->assertSame(0, OutboxMessage::count());
     }
 
-    public function test_demo_mode_accepts_invalid_domain_addresses(): void
+    public function test_invalid_recipients_only_accepts_invalid_domain_addresses(): void
     {
         Queue::fake();
 
-        $this->queueLoginLink($this->outbox(demo: true), email: 'coach@EXAMPLE.invalid');
+        $this->queueLoginLink($this->outbox(invalidOnly: true), email: 'coach@EXAMPLE.invalid');
 
         $this->assertSame(1, OutboxMessage::count());
     }

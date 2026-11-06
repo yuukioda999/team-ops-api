@@ -10,7 +10,7 @@ use App\Support\NotifyRelay\EmailOutbox;
 use Illuminate\Support\Facades\DB;
 
 /**
- * メールアドレスの変更を申請する(AC-001-09)。新しいアドレスに確認メールを送り、
+ * メールアドレスの変更を申請する(AC-001-09・15)。新しいアドレスに確認メールを送り、
  * リンクを開くまでは旧アドレスのまま。
  *
  * 確定には、申請した本人のログインが必要(ConfirmEmailChange)。
