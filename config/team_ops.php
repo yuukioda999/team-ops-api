@@ -18,7 +18,8 @@ return [
     | (マジックリンクでログインできるまま、実在のアドレスには送らない)。
     | 入力の検査(EmailAddressRequest)、アウトボックス、notify-relay の3か所で同じ制限をかける。
     */
-    'invalid_recipients_only' => (bool) env('RECIPIENTS_INVALID_ONLY', false) || (bool) env('DEMO_MODE', false),
+    // デモモードとの組み合わせは RecipientRestriction::invalidOnly() で判定する
+    'invalid_recipients_only' => (bool) env('RECIPIENTS_INVALID_ONLY', false),
 
     /*
     | 信頼するプロキシ(Vite・nginx)のアドレスか範囲。カンマ区切り。回数制限で利用者ごとのIPを

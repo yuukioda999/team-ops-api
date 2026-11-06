@@ -9,16 +9,20 @@ use RuntimeException;
  *
  * - team-ops の env/api.env に公開しているローカル用の鍵は、誰でも読める。本番やデモで使うと、
  *   漏れたDBの暗号化項目を復号でき、メールアドレスの照合用ハッシュも辞書攻撃で戻せてしまう(ADR-0003)。
- * - 信頼するプロキシが空のままだと、すべての利用者が nginx のアドレスとして数えられ、
- *   IPごとの回数制限が全員で1つの枠になる(AC-001-05)。
+ *   Laravel は `base64:` 付きの鍵も生の文字列の鍵も受け付けるので、デコードしたバイト列で比べる。
+ * - 信頼するプロキシが空、またはすべてのアドレスだと、IPごとの回数制限(AC-001-05)が全員で1つの枠になるか、
+ *   X-Forwarded-For を偽ってすり抜けられる。
  */
 final class ProductionSettings
 {
-    /** team-ops の env/api.env に公開しているローカル用の値 */
-    public const array PUBLISHED_LOCAL_VALUES = [
-        'APP_KEY' => 'base64:dGVhbS1vcHMtbG9jYWwtZGV2ZWxvcG1lbnQta2V5ISE=',
-        'BLIND_INDEX_KEY' => 'base64:dGVhbS1vcHMtbG9jYWwtYmxpbmQtaW5kZXgta2V5ISE=',
+    /** team-ops の env/api.env に公開しているローカル用の鍵(デコードしたバイト列) */
+    public const array PUBLISHED_LOCAL_KEYS = [
+        'APP_KEY' => 'team-ops-local-development-key!!',
+        'BLIND_INDEX_KEY' => 'team-ops-local-blind-index-key!!',
     ];
+
+    /** すべての送信元を信じる設定。ローカル以外では使わせない */
+    private const array TRUST_EVERYONE = ['*', '**', '0.0.0.0/0', '::/0'];
 
     public static function isLocal(string $environment): bool
     {
@@ -30,8 +34,20 @@ final class ProductionSettings
      */
     public static function refusePublishedKey(string $name, mixed $value, string $environment): void
     {
-        if (! self::isLocal($environment) && $value === self::PUBLISHED_LOCAL_VALUES[$name]) {
+        if (! self::isLocal($environment) && is_string($value) && self::decode($value) === self::PUBLISHED_LOCAL_KEYS[$name]) {
             throw new RuntimeException("{$name} is the published local development key. Set a real key.");
+        }
+    }
+
+    /**
+     * APP_KEY と、復号にだけ使う古い鍵(APP_PREVIOUS_KEYS)の両方を確かめる。
+     *
+     * @param  array<mixed>  $previousKeys
+     */
+    public static function refusePublishedAppKeys(mixed $key, array $previousKeys, string $environment): void
+    {
+        foreach ([$key, ...$previousKeys] as $value) {
+            self::refusePublishedKey('APP_KEY', $value, $environment);
         }
     }
 
@@ -40,8 +56,23 @@ final class ProductionSettings
      */
     public static function requireTrustedProxies(array $proxies, string $environment): void
     {
-        if (! self::isLocal($environment) && $proxies === []) {
+        if (self::isLocal($environment)) {
+            return;
+        }
+        if ($proxies === []) {
             throw new RuntimeException('TRUSTED_PROXIES is empty. Set the address of the nginx in front of the API, or every client shares one rate limit.');
         }
+        if (array_intersect($proxies, self::TRUST_EVERYONE) !== []) {
+            throw new RuntimeException('TRUSTED_PROXIES trusts every address. Set the address of the nginx in front of the API, or X-Forwarded-For can be forged.');
+        }
+    }
+
+    private static function decode(string $value): string
+    {
+        if (str_starts_with($value, 'base64:')) {
+            return (string) base64_decode(substr($value, 7), true);
+        }
+
+        return $value;
     }
 }

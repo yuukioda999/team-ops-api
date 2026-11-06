@@ -99,5 +99,11 @@ class TeamIsolationTest extends TestCase
                 $this->assertTrue($requiresLogin, "{$label} must require login");
             }
         }
+
+        // 消したルートが許可リストに残ると、次にルートを足すときの確認が抜けやすいので、残さない
+        $existing = $routes->flatMap(fn (Route $route) => array_map(fn (string $method) => "{$method} {$route->uri()}", $route->methods()));
+        foreach (array_keys(self::ROUTES_OUTSIDE_TEAMS) as $label) {
+            $this->assertContains($label, $existing, "{$label} is in the allowlist but no longer exists");
+        }
     }
 }

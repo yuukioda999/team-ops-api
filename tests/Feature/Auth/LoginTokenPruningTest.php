@@ -2,7 +2,10 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Enums\LoginTokenPurpose;
 use App\Models\LoginToken;
+use App\Models\User;
+use App\Support\Auth\OneTimeToken;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
@@ -15,15 +18,20 @@ class LoginTokenPruningTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_AC_001_18_tokens_are_deleted_24_hours_after_they_expire(): void
+    public function test_AC_001_18_login_and_email_change_tokens_are_deleted_24_hours_after_they_expire(): void
     {
         $this->postJson('/api/auth/login-links', ['email' => 'parent@example.invalid'])->assertAccepted();
-        $this->assertDatabaseCount('login_tokens', 1);
+        $user = User::factory()->create(['email' => 'coach@example.invalid']);
+        OneTimeToken::issue(LoginTokenPurpose::EmailChange, 'coach-new@example.invalid', $user->id);
+        $this->assertSame(
+            [LoginTokenPurpose::Login, LoginTokenPurpose::EmailChange],
+            LoginToken::orderBy('id')->get()->map(fn (LoginToken $t) => $t->purpose)->all(),
+        );
 
         // 期限(15分)から24時間たつまでは残す
         $this->travel(15 + 24 * 60 - 1)->minutes();
         $this->assertSame(0, Artisan::call('model:prune', ['--model' => [LoginToken::class]]));
-        $this->assertDatabaseCount('login_tokens', 1);
+        $this->assertDatabaseCount('login_tokens', 2);
 
         $this->travel(2)->minutes();
         $this->assertSame(0, Artisan::call('model:prune', ['--model' => [LoginToken::class]]));

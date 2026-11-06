@@ -180,6 +180,7 @@ class AccountTest extends AuthTestCase
 
         $mail = OutboxMessage::latest('id')->first();
         $this->assertSame('email_change_unavailable', $mail?->kind);
+        $this->assertStringContainsString('すでに別のアカウントで使われているため変更できません', (string) ($mail?->payload['message']['text'] ?? ''));
         $this->assertArrayNotHasKey('url', $mail?->payload['message'] ?? [], 'No link that could complete the change');
         $this->assertNotNull(LoginToken::latest('id')->first()?->used_at);
     }

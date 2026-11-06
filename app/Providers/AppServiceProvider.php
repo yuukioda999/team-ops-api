@@ -6,6 +6,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Support\Crypto\BlindIndex;
 use App\Support\NotifyRelay\EmailOutbox;
+use App\Support\NotifyRelay\RecipientRestriction;
 use App\Support\NotifyRelay\RelayClient;
 use App\Support\Queue\RedactingFailedJobProvider;
 use App\Support\Security\ProductionSettings;
@@ -38,7 +39,7 @@ class AppServiceProvider extends ServiceProvider
 
         // 暗号化(Cookie、暗号化した項目)を初めて使うときに、公開済みのローカル用の鍵でないか確かめる
         $this->app->extend('encrypter', function (mixed $encrypter, Application $app) {
-            ProductionSettings::refusePublishedKey('APP_KEY', config('app.key'), (string) $app->environment());
+            ProductionSettings::refusePublishedAppKeys(config('app.key'), (array) config('app.previous_keys'), (string) $app->environment());
 
             return $encrypter;
         });
@@ -53,7 +54,7 @@ class AppServiceProvider extends ServiceProvider
         );
         $this->app->singleton(
             EmailOutbox::class,
-            fn () => new EmailOutbox((bool) config('team_ops.invalid_recipients_only')),
+            fn () => new EmailOutbox(RecipientRestriction::invalidOnly()),
         );
 
         // 失敗したジョブの記録にも、個人情報を伏せた例外を保存する(AC-000-04)
@@ -84,9 +85,6 @@ class AppServiceProvider extends ServiceProvider
         $trustedProxies = (array) config('team_ops.trusted_proxies');
         TrustProxies::at($trustedProxies);
         TrustProxies::withHeaders(Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_PROTO);
-        if (! $this->app->runningInConsole()) {
-            ProductionSettings::requireTrustedProxies($trustedProxies, (string) $this->app->environment());
-        }
 
         $this->configureRateLimiting();
         $this->bindTeamToMembership();
