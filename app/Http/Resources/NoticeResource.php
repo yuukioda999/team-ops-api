@@ -30,6 +30,8 @@ final class NoticeResource extends JsonResource
             'published_at' => $this->resource->published_at?->toIso8601String(),
             'recipient_count' => $this->resource->recipient_count,
             'author_display_name' => $this->resource->author->display_name ?? null,
+            // 自分宛ての一覧で、まだ開いていない(AC-006-03)。それ以外は false
+            'unread' => (bool) $this->resource->getAttribute('unread'),
         ];
     }
 }

@@ -17,3 +17,6 @@ Schedule::command('model:prune', ['--model' => [LoginToken::class]])->daily();
 // 14日間そのままの参加申請を取り消し(AC-002-15)、最終状態から30日を過ぎた申請の記録を消す(AC-002-17)
 Schedule::command('join-requests:expire')->daily();
 Schedule::command('model:prune', ['--model' => [TeamJoinRequest::class]])->daily();
+
+// 完了の通知が届いていないお知らせのメールを notify-relay と照合する(AC-006-09、ADR-0019)
+Schedule::command('notices:reconcile-deliveries')->hourly()->withoutOverlapping(30);

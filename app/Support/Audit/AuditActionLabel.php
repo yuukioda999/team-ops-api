@@ -29,6 +29,7 @@ final class AuditActionLabel
         'notice.scheduled' => 'お知らせを予約',
         'notice.updated' => '予約中のお知らせを編集',
         'notice.cancelled' => 'お知らせの予約を取り消し',
+        'notice.reminded' => '未読の人に再通知',
     ];
 
     public static function of(string $action): string

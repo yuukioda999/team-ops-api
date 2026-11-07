@@ -21,6 +21,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $give_up_at
  * @property Carbon|null $sent_at
  * @property string|null $last_error
+ * @property string|null $delivery_id notify-relay が受け付けたときの ID(ADR-0019)
+ * @property int $results_received
+ * @property Carbon|null $relay_completed_at
+ * @property Carbon|null $reconcile_stopped_at
  */
 #[Fillable(['kind', 'dedupe_key', 'payload', 'status', 'next_attempt_at', 'give_up_at'])]
 #[Hidden(['payload'])]
@@ -29,6 +33,7 @@ class OutboxMessage extends Model
     protected $attributes = [
         'status' => 'pending',
         'attempts' => 0,
+        'results_received' => 0,
     ];
 
     /**
@@ -43,6 +48,9 @@ class OutboxMessage extends Model
             'next_attempt_at' => 'datetime',
             'give_up_at' => 'datetime',
             'sent_at' => 'datetime',
+            'results_received' => 'integer',
+            'relay_completed_at' => 'datetime',
+            'reconcile_stopped_at' => 'datetime',
         ];
     }
 }

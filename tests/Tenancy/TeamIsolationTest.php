@@ -125,6 +125,8 @@ class TeamIsolationTest extends TestCase
         'POST api/auth/login-links' => false,
         'POST api/auth/login-links/consume' => false,
         'POST api/invitations/preview' => false,
+        // notify-relay からの送信結果。ログインではなく署名で確かめ、何も返さない(204、ADR-0019)
+        'POST api/internal/notify-relay/events' => false,
         'POST api/invitations/applications' => true,
         'POST api/auth/logout' => true,
         'GET api/me' => true,

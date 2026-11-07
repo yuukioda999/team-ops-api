@@ -66,6 +66,10 @@ final class DeliverOutboxMessage implements ShouldQueue
         $context['reason'] = $result->reason;
 
         if ($result->isAccepted()) {
+            // 照合で notify-relay に問い合わせるときに使う(ADR-0019)
+            if (is_string($result->deliveryId) && $result->deliveryId !== '') {
+                $message->forceFill(['delivery_id' => $result->deliveryId]);
+            }
             $this->finish($message, OutboxStatus::Sent, null);
             Log::info('Outbox message handed to notify-relay', $context + ['delivery_id' => $result->deliveryId]);
 

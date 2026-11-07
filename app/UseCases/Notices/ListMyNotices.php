@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
- * 自分が宛先に含まれる公開済みのお知らせを、新しい順に50件ずつ(AC-005-14・15・19)。
+ * 自分が宛先に含まれる公開済みのお知らせを、新しい順に50件ずつ(AC-005-14・15・19)。未読の目印を付ける(AC-006-03)。
  * $before を渡すと、そのお知らせより古いものを返す。
  */
 final class ListMyNotices
@@ -32,7 +32,9 @@ final class ListMyNotices
      */
     public function __invoke(User $user, Team $team, ?int $before): array
     {
-        $query = self::visibleTo($user, $team)->with('author');
+        // 未読の目印(AC-006-03)
+        $query = self::visibleTo($user, $team)->with('author')
+            ->withExists(['recipients as unread' => fn (Builder $q) => $q->where('user_id', $user->id)->whereNull('read_at')]);
         if ($before !== null) {
             $cursor = self::visibleTo($user, $team)->find($before);
             if ($cursor === null) {

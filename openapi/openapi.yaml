@@ -37,7 +37,9 @@ tags:
   - name: members
     description: メンバーの管理と監査ログ(004)
   - name: notices
-    description: お知らせ(005)
+    description: お知らせ(005)、既読・配信状況・再通知(006)
+  - name: internal
+    description: サービス間の通信(notify-relay からの送信結果)
 
 paths:
   /api/sanctum/csrf-cookie:
@@ -702,6 +704,145 @@ paths:
         '419':
           $ref: '#/components/responses/CsrfExpired'
 
+  /api/teams/{team}/notices/{notice}/status:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/NoticeId'
+    get:
+      tags: [notices]
+      operationId: getNoticeStatus
+      summary: 既読・配信状況
+      description: |
+        代表・役員、または作成者のコーチだけ(AC-006-04・10)。送信済みのお知らせだけで、それ以外は404です。
+        宛先数・既読数・未読数と、メールの状態ごとの人数を返します。送信待ちが残っていれば `state` は sending です(AC-006-07)。
+        `reminders` は再通知できるかと、できない理由(interval:1時間以内、max:3回済み、no_unread:未読の人がいない)です。
+      responses:
+        '200':
+          description: 状況
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status:
+                    $ref: '#/components/schemas/NoticeDeliveryStatus'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/teams/{team}/notices/{notice}/status/unread:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/NoticeId'
+    get:
+      tags: [notices]
+      operationId: listUnreadNoticeRecipients
+      summary: 未読の人
+      description: 代表・役員、または作成者のコーチだけ(AC-006-05)。表示名の順に並べます。チームを抜けた人は `member` が false です。
+      responses:
+        '200':
+          description: 未読の人
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [members]
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NoticeRecipientName'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/teams/{team}/notices/{notice}/status/failures:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/NoticeId'
+    get:
+      tags: [notices]
+      operationId: listFailedNoticeRecipients
+      summary: メールが届かなかった・送らなかった人
+      description: |
+        代表・役員、または作成者のコーチだけ(AC-006-06)。`reason` は理由のコードで、画面で利用者向けの言葉に直します。
+        failed のとき notify-relay の error_code(invalid_address、provider_rejected、provider_unavailable、rate_limited、expired)、
+        skipped のとき undeliverable_address(メールが届かないアドレス)、restricted(宛先を .invalid に限る環境)、expired です。
+      responses:
+        '200':
+          description: 届かなかった人
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [members]
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NoticeFailedRecipient'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/teams/{team}/notices/{notice}/reminders:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/NoticeId'
+    post:
+      tags: [notices]
+      operationId: sendNoticeReminder
+      summary: 未読の人に再通知する
+      description: |
+        代表・役員、または作成者のコーチだけ(AC-006-11)。実行時点で未読の、今もチームにいる人に、件名に【再通知】を付けたメールを送ります。
+        メールが届かないアドレスの人などは除き、その人数を `excluded` で返します(AC-006-14)。
+        前回から1時間以内、3回済み、未読の人がいないときは 409 です(AC-006-12・13・15)。
+      responses:
+        '201':
+          description: 再通知した
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [reminder]
+                properties:
+                  reminder:
+                    type: object
+                    additionalProperties: false
+                    required: [number, sent, excluded]
+                    properties:
+                      number:
+                        type: integer
+                        description: 何回目か(1〜3)
+                      sent:
+                        type: integer
+                      excluded:
+                        type: integer
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ReminderUnavailable'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+
   /api/teams/{team}/invitation:
     parameters:
       - $ref: '#/components/parameters/TeamId'
@@ -1150,6 +1291,34 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
+  /api/internal/notify-relay/events:
+    post:
+      tags: [internal]
+      operationId: receiveRelayEvent
+      summary: notify-relay からの送信結果(webhook)
+      description: |
+        notify-relay の deliveryResults・deliveryCompleted の受け口です(ADR-0019)。セッションではなく署名で確かめ、違えば 401 です。
+        同じ `event_id` は2回処理せず、204 を返します。お知らせのメールなら、宛先ごとの状態を更新します(AC-006-08)。
+      security:
+        - relaySignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RelayEvent'
+      responses:
+        '204':
+          description: 受け取った(重複していた場合も)
+        '401':
+          description: 署名・鍵ID・時刻が正しくない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
   /api/invitations/preview:
     post:
       tags: [invitations]
@@ -1243,6 +1412,11 @@ components:
       in: cookie
       name: team-ops-api-session
       description: Sanctum の SPA 認証のセッション Cookie。変更を伴うリクエストには X-XSRF-TOKEN ヘッダーも必要
+    relaySignature:
+      type: apiKey
+      in: header
+      name: X-Relay-Signature
+      description: notify-relay の webhook の署名(notify-relay api/openapi.yaml と同じ方式)。X-Relay-Key-Id と X-Relay-Timestamp も必要
 
   parameters:
     TeamId:
@@ -1420,7 +1594,7 @@ components:
     Notice:
       type: object
       additionalProperties: false
-      required: [id, title, body, target, status, scheduled_at, published_at, recipient_count, author_display_name]
+      required: [id, title, body, target, status, scheduled_at, published_at, recipient_count, author_display_name, unread]
       properties:
         id:
           type: integer
@@ -1454,6 +1628,123 @@ components:
           description: 公開の時点で届いた人数(予約中は0)
         author_display_name:
           type: [string, 'null']
+        unread:
+          type: boolean
+          description: 自分宛ての一覧で、まだ開いていない(AC-006-03)。それ以外は false
+
+    NoticeDeliveryStatus:
+      type: object
+      additionalProperties: false
+      required: [state, recipients, read, unread, delivered, pending, failed, skipped, reminders]
+      properties:
+        state:
+          type: string
+          enum: [sending, done]
+        recipients:
+          type: integer
+          description: 送信時点の宛先数
+        read:
+          type: integer
+        unread:
+          type: integer
+        delivered:
+          type: integer
+          description: 送信済み(受信側のサーバーが受け付けた)
+        pending:
+          type: integer
+          description: 送信待ち
+        failed:
+          type: integer
+        skipped:
+          type: integer
+          description: 送らなかった
+        reminders:
+          type: object
+          additionalProperties: false
+          required: [sent, max, available, reason, next_available_at]
+          properties:
+            sent:
+              type: integer
+            max:
+              type: integer
+            available:
+              type: boolean
+            reason:
+              type: [string, 'null']
+              enum: [interval, max, no_unread, null]
+            next_available_at:
+              type: [string, 'null']
+              format: date-time
+              description: reason が interval のとき、次に実行できる時刻
+
+    NoticeRecipientName:
+      type: object
+      additionalProperties: false
+      required: [display_name, member]
+      properties:
+        display_name:
+          type: [string, 'null']
+        member:
+          type: boolean
+          description: 今もチームにいるか
+
+    NoticeFailedRecipient:
+      type: object
+      additionalProperties: false
+      required: [display_name, member, status, reason]
+      properties:
+        display_name:
+          type: [string, 'null']
+        member:
+          type: boolean
+        status:
+          type: string
+          enum: [failed, skipped]
+        reason:
+          type: [string, 'null']
+
+    RelayEvent:
+      type: object
+      required: [event_id, type, delivery_id, dedupe_key]
+      properties:
+        event_id:
+          type: string
+          pattern: '^evt_[0-9A-HJKMNP-TV-Z]{26}$'
+        type:
+          type: string
+          enum: [delivery.results, delivery.completed]
+        delivery_id:
+          type: string
+          pattern: '^dlv_[0-9A-HJKMNP-TV-Z]{26}$'
+        dedupe_key:
+          type: string
+        results:
+          type: array
+          maxItems: 500
+          items:
+            type: object
+            required: [recipient_ref, status, occurred_at]
+            properties:
+              recipient_ref:
+                type: string
+              status:
+                type: string
+                enum: [delivered, failed, skipped]
+              error_code:
+                type: [string, 'null']
+              attempts:
+                type: integer
+              occurred_at:
+                type: string
+                format: date-time
+        counts:
+          type: object
+        completed_at:
+          type: string
+          format: date-time
+        sent_at:
+          type: string
+          format: date-time
 
     NoticeEnvelope:
       type: object
@@ -1563,7 +1854,7 @@ components:
     Me:
       type: object
       additionalProperties: false
-      required: [email, display_name, needs_display_name, teams, join_requests]
+      required: [email, display_name, needs_display_name, email_undeliverable, teams, join_requests]
       properties:
         email:
           type: string
@@ -1574,6 +1865,9 @@ components:
         needs_display_name:
           type: boolean
           description: true なら表示名の入力画面に進む
+        email_undeliverable:
+          type: boolean
+          description: お知らせのメールがアドレスの問題で届かなかった。アドレスを変えるまでお知らせのメールを送らない(AC-006-16・17)
         teams:
           type: array
           items:
@@ -1961,6 +2255,12 @@ components:
             $ref: '#/components/schemas/CsvProblem'
 
   responses:
+    ReminderUnavailable:
+      description: 前回から1時間以内、3回済み、または未読の人がいない(AC-006-12・13・15)。`errors.reminder` に理由が入る
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
     NoticeNotScheduled:
       description: 送信済み・取り消し済みのお知らせは編集・取り消しできない(AC-005-06)
       content:

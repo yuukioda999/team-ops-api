@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Support\Carbon;
 
 /**
  * アカウント。パスワードは持たない(ADR-0008)。
@@ -20,6 +21,8 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
  * @property string $email
  * @property string $email_index
  * @property string|null $display_name
+ * @property Carbon|null $email_undeliverable_at お知らせのメールがアドレスの問題で届かなかった日時(ADR-0020)
+ * @property Carbon|null $email_changed_at
  */
 #[Fillable(['email', 'display_name'])]
 #[Hidden(['email', 'email_index', 'display_name'])]
@@ -42,6 +45,8 @@ class User extends Authenticatable
         return [
             'email' => 'encrypted',
             'display_name' => 'encrypted',
+            'email_undeliverable_at' => 'datetime',
+            'email_changed_at' => 'datetime',
         ];
     }
 

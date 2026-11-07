@@ -78,6 +78,19 @@ class AccountTest extends AuthTestCase
         $this->assertStringContainsString('メールアドレスが変更されました', (string) ($notice?->payload['message']['subject'] ?? ''));
     }
 
+    public function test_AC_006_17_changing_the_address_clears_the_undeliverable_mark(): void
+    {
+        $this->logIn('old@example.invalid');
+        User::whereEmail('old@example.invalid')->sole()->forceFill(['email_undeliverable_at' => now()])->save();
+        $this->getJson('/api/me')->assertJsonPath('email_undeliverable', true);
+
+        $this->postJson('/api/me/email-changes', ['new_email' => 'new@example.invalid'])->assertAccepted();
+        $this->postJson('/api/me/email-changes/consume', ['token' => $this->tokenFromLatestMail('/settings/email/verify')])->assertOk();
+
+        $this->getJson('/api/me')->assertJsonPath('email_undeliverable', false);
+        $this->assertNotNull(User::whereEmail('new@example.invalid')->sole()->email_changed_at);
+    }
+
     public function test_AC_001_09_the_change_link_requires_the_requester_to_be_logged_in(): void
     {
         $this->logIn('old@example.invalid');

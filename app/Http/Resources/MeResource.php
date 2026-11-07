@@ -32,6 +32,8 @@ final class MeResource extends JsonResource
             'display_name' => $user->display_name,
             // 初回ログイン直後で、表示名の入力画面に進む必要がある(AC-001-03・08)
             'needs_display_name' => ! $user->hasCompletedRegistration(),
+            // お知らせのメールがアドレスの問題で届かなかった。アドレスを変えるまでメールを送らない(AC-006-16・17、ADR-0020)
+            'email_undeliverable' => $user->email_undeliverable_at !== null,
             // どのチームにも所属していなければ空。画面は「チームを作成する」「招待から参加する」を出す(AC-001-14)
             'teams' => $user->teams()->orderBy('teams.created_at')->get()->map(function (Team $team): array {
                 /** @var TeamMembership $membership */

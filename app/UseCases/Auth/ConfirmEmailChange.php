@@ -45,7 +45,7 @@ final class ConfirmEmailChange
 
             $oldEmail = $user->email;
             try {
-                DB::transaction(fn () => $user->update(['email' => $token->email]));
+                DB::transaction(fn () => $user->forceFill(['email' => $token->email, 'email_changed_at' => now(), 'email_undeliverable_at' => null])->save());
             } catch (UniqueConstraintViolationException) {
                 return self::TAKEN; // 同時に別の人が同じアドレスに変更した
             }

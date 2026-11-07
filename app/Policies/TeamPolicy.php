@@ -144,6 +144,18 @@ final class TeamPolicy
     }
 
     /**
+     * 既読・配信状況の確認と再通知(006)。代表・役員はすべて、コーチは自分が作成したお知らせだけ(004 の権限表 ※2)。
+     */
+    public function viewNoticeStatus(User $user, Team $team, Notice $notice): bool
+    {
+        if ($this->manageAllNotices($user, $team)) {
+            return true;
+        }
+
+        return $notice->author_user_id === $user->id && in_array(TeamRole::Coach, $user->rolesIn($team), true);
+    }
+
+    /**
      * この予約中のお知らせを編集・取り消しできるか。作成者(今も作成できる役割を持つ)か、代表・役員(AC-005-10)。
      */
     public function manageNotice(User $user, Team $team, Notice $notice): bool

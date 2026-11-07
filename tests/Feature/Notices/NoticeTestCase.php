@@ -9,12 +9,15 @@ use App\Models\Player;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\User;
+use App\Support\NotifyRelay\RelayClient;
 use Database\Factories\TeamFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 /**
@@ -39,6 +42,16 @@ abstract class NoticeTestCase extends TestCase
      */
     protected array $relayed = [];
 
+    /**
+     * notify-relay の状態の照会(AC-R001-21)への答え。null なら 404(7日を過ぎて消えた)
+     *
+     * @var array<string, mixed>|null
+     */
+    protected ?array $relayStatus = null;
+
+    /** notify-relay が受け付けたときに返す delivery_id の通し番号 */
+    private int $deliverySeq = 0;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -47,13 +60,73 @@ abstract class NoticeTestCase extends TestCase
             if (! $this->relayUp) {
                 throw new ConnectionException('Connection refused');
             }
+            if ($request->method() === 'GET') {
+                return $this->relayStatus === null ? Http::response(['title' => 'Delivery not found'], 404) : Http::response($this->relayStatus);
+            }
             $body = json_decode($request->body(), true);
             $this->relayed[] = is_array($body) ? $body : [];
+            $this->deliverySeq++;
 
-            return Http::response(['delivery_id' => 'dlv_test'], 202);
+            return Http::response(['delivery_id' => self::deliveryId($this->deliverySeq)], 202);
         });
         $this->representative = User::factory()->create(['email' => 'rep@example.invalid', 'display_name' => '代表 太郎']);
         $this->team = Team::factory()->withRepresentative()->create(['name' => 'つくばFC', 'created_by' => $this->representative->id]);
+    }
+
+    /**
+     * テスト用の delivery_id(notify-relay の形式)
+     */
+    protected static function deliveryId(int $n): string
+    {
+        return 'dlv_'.str_pad((string) $n, 26, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * notify-relay の webhook を、署名を付けて送る(ADR-0019)。
+     *
+     * @param  array<string, mixed>  $event
+     * @return TestResponse<Response>
+     */
+    protected function relayEvent(array $event, ?string $secret = null, ?int $timestamp = null): TestResponse
+    {
+        $path = '/api/internal/notify-relay/events';
+        $body = json_encode($event, JSON_THROW_ON_ERROR);
+        $timestamp ??= time();
+        $secret ??= (string) base64_decode('dGVzdC1yZWxheS1zaWduaW5nLWtleS0zMi1ieXRlcyE=', true);
+
+        return $this->call('POST', $path, [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_RELAY_KEY_ID' => 'k-test',
+            'HTTP_X_RELAY_TIMESTAMP' => (string) $timestamp,
+            'HTTP_X_RELAY_SIGNATURE' => RelayClient::sign($secret, $timestamp, 'POST', $path, $body),
+        ], $body);
+    }
+
+    /**
+     * 送ったお知らせのメールの結果を webhook で返す。
+     *
+     * @param  array<int, array{0: string, 1?: string|null}>  $results  ユーザーID => [状態, error_code]
+     * @return TestResponse<Response>
+     */
+    protected function results(string $dedupeKey, array $results, ?string $occurredAt = null, ?string $eventId = null): TestResponse
+    {
+        static $seq = 0;
+        $seq++;
+
+        return $this->relayEvent([
+            'event_id' => $eventId ?? 'evt_'.str_pad((string) $seq, 26, '0', STR_PAD_LEFT),
+            'type' => 'delivery.results',
+            'delivery_id' => self::deliveryId(1),
+            'dedupe_key' => $dedupeKey,
+            'results' => array_map(fn (int $userId, array $r) => [
+                'recipient_ref' => "user_{$userId}",
+                'status' => $r[0],
+                'error_code' => $r[1] ?? null,
+                'attempts' => 1,
+                'occurred_at' => $occurredAt ?? now()->toIso8601String(),
+            ], array_keys($results), array_values($results)),
+            'sent_at' => now()->toIso8601String(),
+        ]);
     }
 
     /**

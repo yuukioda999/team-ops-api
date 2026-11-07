@@ -41,9 +41,7 @@ final class PermissionMatrix
     /**
      * まだ API のない行(004 の判断1)。作るときに operations() へ移す。
      */
-    public const array PENDING = [
-        '既読・配信状況の確認、再通知(006)',
-    ];
+    public const array PENDING = [];
 
     /**
      * @return array<string, array{
@@ -194,6 +192,18 @@ final class PermissionMatrix
                     ['call' => fn (PermissionContext $c) => $c->test->postJson($c->url('/notices/recipient-count'), ['target' => ['type' => 'all', 'values' => []], 'notice_id' => $c->othersScheduledNoticeId])],
                     ['call' => fn (PermissionContext $c) => $c->test->patchJson($c->url("/notices/{$c->othersScheduledNoticeId}"), ['title' => '直した予約'])],
                     ['call' => fn (PermissionContext $c) => $c->test->deleteJson($c->url("/notices/{$c->othersScheduledNoticeId}"))],
+                ],
+            ],
+            // コーチは自分が作成したお知らせだけ(※2)。相手は操作する人が作成した送信済みのお知らせ。
+            // コーチが他人のお知らせを扱えないことは、006 のテストで確かめる
+            '既読・配信状況の確認、再通知(006)' => [
+                'allowed' => [$rep, $officer, $coach],
+                'abilities' => ['viewNoticeStatus'],
+                'calls' => [
+                    ['call' => fn (PermissionContext $c) => $c->test->getJson($c->url("/notices/{$c->ownPublishedNoticeId}/status"))],
+                    ['call' => fn (PermissionContext $c) => $c->test->getJson($c->url("/notices/{$c->ownPublishedNoticeId}/status/unread"))],
+                    ['call' => fn (PermissionContext $c) => $c->test->getJson($c->url("/notices/{$c->ownPublishedNoticeId}/status/failures"))],
+                    ['call' => fn (PermissionContext $c) => $c->test->postJson($c->url("/notices/{$c->ownPublishedNoticeId}/reminders"))],
                 ],
             ],
             '監査ログの閲覧' => [
