@@ -47,6 +47,8 @@ final class TeamResource extends JsonResource
                 'manage_roles' => $user !== null && Gate::forUser($user)->allows('manageRoles', $this->resource),
                 'remove_members' => $user !== null && Gate::forUser($user)->allows('removeMembers', $this->resource),
                 'view_audit_logs' => $user !== null && Gate::forUser($user)->allows('viewAuditLogs', $this->resource),
+                'create_notices' => $user !== null && Gate::forUser($user)->allows('createNotices', $this->resource),
+                'manage_all_notices' => $user !== null && Gate::forUser($user)->allows('manageAllNotices', $this->resource),
                 'view_players' => $user !== null && Gate::forUser($user)->allows('viewPlayers', $this->resource),
                 'view_all_players' => $user !== null && Gate::forUser($user)->allows('viewAllPlayers', $this->resource),
             ],
