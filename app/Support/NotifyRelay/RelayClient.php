@@ -80,6 +80,45 @@ final class RelayClient
     }
 
     /**
+     * 配信依頼の状態(件数だけ)を問い合わせる(AC-R001-21、照合用)。
+     * 7日を過ぎて消えた依頼は not_found。接続できない・想定外の応答は null(次の回にやり直す)。
+     *
+     * @return array{state: string, pending: int, finished: int}|'not_found'|null
+     */
+    public function getDelivery(string $deliveryId, ?int $timestamp = null): array|string|null
+    {
+        if (preg_match('/^dlv_[0-9A-HJKMNP-TV-Z]{26}$/', $deliveryId) !== 1) {
+            return 'not_found';
+        }
+        $path = self::PATH.'/'.$deliveryId;
+        $timestamp ??= time();
+        try {
+            $response = $this->http
+                ->timeout($this->timeoutSeconds)
+                ->withHeaders([
+                    'X-Relay-Key-Id' => $this->keyId,
+                    'X-Relay-Timestamp' => (string) $timestamp,
+                    'X-Relay-Signature' => self::sign($this->secret, $timestamp, 'GET', $path, ''),
+                ])
+                ->withoutRedirecting()
+                ->get($this->baseUrl.$path);
+        } catch (ConnectionException) {
+            return null;
+        }
+        if ($response->status() === 404) {
+            return 'not_found';
+        }
+        $counts = $response->json('counts');
+        $state = $response->json('state');
+        if (! $response->successful() || ! is_array($counts) || ! is_string($state)) {
+            return null;
+        }
+        $n = fn (string $k): int => is_int($counts[$k] ?? null) ? $counts[$k] : 0;
+
+        return ['state' => $state, 'pending' => $n('pending'), 'finished' => $n('delivered') + $n('failed') + $n('skipped')];
+    }
+
+    /**
      * 署名の形式は notify-relay の api/openapi.yaml(1.0.0-draft.2)に従う。
      * メソッドとパスも含め、ある依頼の署名を別の操作に使い回せないようにする。
      */

@@ -5,15 +5,18 @@ use App\Http\Controllers\Auth\LoginLinkController;
 use App\Http\Controllers\Auth\MeController;
 use App\Http\Controllers\Auth\SessionController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\Internal\RelayEventController;
 use App\Http\Controllers\Invitations\InvitationController as JoinController;
 use App\Http\Controllers\Teams\AuditLogController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\JoinRequestController;
 use App\Http\Controllers\Teams\MemberController;
 use App\Http\Controllers\Teams\NoticeController;
+use App\Http\Controllers\Teams\NoticeStatusController;
 use App\Http\Controllers\Teams\PlayerController;
 use App\Http\Controllers\Teams\PlayerImportController;
 use App\Http\Controllers\Teams\TeamController;
+use App\Http\Middleware\VerifyRelaySignature;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class);
@@ -24,6 +27,9 @@ Route::post('/auth/login-links/consume', [LoginLinkController::class, 'consume']
 
 // 招待リンクのチーム名(ログイン不要、AC-002-05・07)。チームの外に置き、チーム名と競技だけを返す
 Route::post('/invitations/preview', [JoinController::class, 'preview'])->middleware('throttle:invitation-preview');
+
+// notify-relay からの送信結果(ADR-0019)。ログインではなく署名で確かめる
+Route::post('/internal/notify-relay/events', [RelayEventController::class, 'store'])->middleware(VerifyRelaySignature::class);
 
 Route::middleware('auth:sanctum')->group(function () {
     // 招待リンクからの参加申請(AC-002-06〜10)。申請者はまだメンバーではないので、チームの外に置く
@@ -58,6 +64,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/notices/{notice}', [NoticeController::class, 'show'])->where('notice', '[0-9]{1,18}');
         Route::patch('/notices/{notice}', [NoticeController::class, 'update'])->where('notice', '[0-9]{1,18}');
         Route::delete('/notices/{notice}', [NoticeController::class, 'destroy'])->where('notice', '[0-9]{1,18}');
+
+        // 既読・配信状況と再通知(006)
+        Route::get('/notices/{notice}/status', [NoticeStatusController::class, 'show'])->where('notice', '[0-9]{1,18}');
+        Route::get('/notices/{notice}/status/unread', [NoticeStatusController::class, 'unread'])->where('notice', '[0-9]{1,18}');
+        Route::get('/notices/{notice}/status/failures', [NoticeStatusController::class, 'failures'])->where('notice', '[0-9]{1,18}');
+        Route::post('/notices/{notice}/reminders', [NoticeStatusController::class, 'remind'])->where('notice', '[0-9]{1,18}');
 
         // 招待リンクと参加申請の承認(002)。権限は TeamPolicy(ADR-0011)
         Route::get('/invitation', [InvitationController::class, 'show']);

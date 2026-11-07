@@ -8,6 +8,7 @@ use App\Models\OutboxMessage;
 use App\Models\Player;
 use App\Models\Team;
 use App\Models\User;
+use App\Support\NotifyRelay\RelayClient;
 use Database\Factories\TeamFactory;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Route;
@@ -267,6 +268,14 @@ class OpenApiContractTest extends AuthTestCase
         $this->check('DELETE', '/api/teams/{team}/notices/{notice}', $this->deleteJson("{$base}/{$sentId}"));
         $this->check('DELETE', '/api/teams/{team}/notices/{notice}', $this->deleteJson("{$base}/{$scheduledId}"));
 
+        // 006 既読・配信状況・再通知
+        $this->check('GET', '/api/teams/{team}/notices/{notice}/status', $this->getJson("{$base}/{$sentId}/status"));
+        $this->check('GET', '/api/teams/{team}/notices/{notice}/status', $this->getJson("{$base}/{$scheduledId}/status"));
+        $this->check('GET', '/api/teams/{team}/notices/{notice}/status/unread', $this->getJson("{$base}/{$sentId}/status/unread"));
+        $this->check('GET', '/api/teams/{team}/notices/{notice}/status/failures', $this->getJson("{$base}/{$sentId}/status/failures"));
+        $this->check('POST', '/api/teams/{team}/notices/{notice}/reminders', $this->postJson("{$base}/{$sentId}/reminders"));
+        $this->check('POST', '/api/teams/{team}/notices/{notice}/reminders', $this->postJson("{$base}/{$sentId}/reminders"));
+
         $this->postJson('/api/auth/logout');
         $this->actingAs($parent);
         $this->check('GET', '/api/teams/{team}/notices', $this->getJson($base));
@@ -275,6 +284,30 @@ class OpenApiContractTest extends AuthTestCase
         $this->check('GET', '/api/teams/{team}/notices/scheduled', $this->getJson("{$base}/scheduled"));
         $this->check('PATCH', '/api/teams/{team}/notices/{notice}', $this->patchJson("{$base}/{$sentId}", ['title' => 'x']));
         $this->check('DELETE', '/api/teams/{team}/notices/{notice}', $this->deleteJson("{$base}/{$sentId}"));
+        $this->check('GET', '/api/teams/{team}/notices/{notice}/status', $this->getJson("{$base}/{$sentId}/status"));
+        $this->check('POST', '/api/teams/{team}/notices/{notice}/reminders', $this->postJson("{$base}/{$sentId}/reminders"));
+    }
+
+    public function test_relay_event_responses_match_the_contract(): void
+    {
+        $path = '/api/internal/notify-relay/events';
+        $send = function (string $body, ?string $signature = null): TestResponse {
+            $ts = time();
+            $secret = (string) base64_decode((string) config('team_ops.notify_relay.secret'), true);
+
+            return $this->call('POST', '/api/internal/notify-relay/events', [], [], [], [
+                'CONTENT_TYPE' => 'application/json',
+                'HTTP_X_RELAY_KEY_ID' => (string) config('team_ops.notify_relay.key_id'),
+                'HTTP_X_RELAY_TIMESTAMP' => (string) $ts,
+                'HTTP_X_RELAY_SIGNATURE' => $signature ?? RelayClient::sign($secret, $ts, 'POST', '/api/internal/notify-relay/events', $body),
+            ], $body);
+        };
+        $event = json_encode(['event_id' => 'evt_01JC9ZB4X7Q2N6R8T0V2W4Y6Z8', 'type' => 'delivery.completed', 'delivery_id' => 'dlv_01JC9ZB4X7Q2N6R8T0V2W4Y6Z8', 'dedupe_key' => 'login-link:abc12345',
+            'counts' => ['pending' => 0, 'delivered' => 1, 'failed' => 0, 'skipped' => 0], 'completed_at' => now()->toIso8601String(), 'sent_at' => now()->toIso8601String()], JSON_THROW_ON_ERROR);
+
+        $this->check('POST', $path, $send($event));
+        $this->check('POST', $path, $send($event, 'v1='.str_repeat('0', 64)));
+        $this->check('POST', $path, $send('{"type":"unknown"}'));
     }
 
     public function test_rate_limited_token_endpoints_match_the_contract(): void
