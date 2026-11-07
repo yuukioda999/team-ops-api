@@ -10,6 +10,7 @@ use App\Http\Controllers\Teams\AuditLogController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\JoinRequestController;
 use App\Http\Controllers\Teams\MemberController;
+use App\Http\Controllers\Teams\NoticeController;
 use App\Http\Controllers\Teams\PlayerController;
 use App\Http\Controllers\Teams\PlayerImportController;
 use App\Http\Controllers\Teams\TeamController;
@@ -48,6 +49,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/members/{membership}', [MemberController::class, 'destroy'])->where('membership', '[0-9]{1,18}');
         Route::post('/representative', [MemberController::class, 'transfer']);
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
+
+        // お知らせ(005、ADR-0017・0018)
+        Route::get('/notices', [NoticeController::class, 'index']);
+        Route::post('/notices', [NoticeController::class, 'store']);
+        Route::post('/notices/recipient-count', [NoticeController::class, 'count'])->middleware('throttle:recipient-count');
+        Route::get('/notices/scheduled', [NoticeController::class, 'scheduled']);
+        Route::get('/notices/{notice}', [NoticeController::class, 'show'])->where('notice', '[0-9]{1,18}');
+        Route::patch('/notices/{notice}', [NoticeController::class, 'update'])->where('notice', '[0-9]{1,18}');
+        Route::delete('/notices/{notice}', [NoticeController::class, 'destroy'])->where('notice', '[0-9]{1,18}');
 
         // 招待リンクと参加申請の承認(002)。権限は TeamPolicy(ADR-0011)
         Route::get('/invitation', [InvitationController::class, 'show']);

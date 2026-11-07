@@ -25,6 +25,10 @@ final class AuditActionLabel
         'member.removed' => 'メンバーを除名',
         'team.representative_transferred' => '代表を交代',
         'team.updated' => 'チーム名・競技を変更',
+        'notice.published' => 'お知らせを送信',
+        'notice.scheduled' => 'お知らせを予約',
+        'notice.updated' => '予約中のお知らせを編集',
+        'notice.cancelled' => 'お知らせの予約を取り消し',
     ];
 
     public static function of(string $action): string

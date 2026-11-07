@@ -33,17 +33,15 @@ final class PermissionMatrix
         '名簿の閲覧(自分に紐づく選手のみ)(003)',
         'お知らせの作成・送信(005)',
         'お知らせの閲覧(自分が宛先のもの)(005)',
+        '他人の予約中のお知らせの編集・取り消し(005)',
         '既読・配信状況の確認、再通知(006)',
         '監査ログの閲覧',
     ];
 
     /**
-     * まだ API のない行(判断1)。作るときに operations() へ移す。
-     * AC-004-02(コーチ兼保護者がお知らせを作成できる)は、005 でこの行を移すときに確かめる。
+     * まだ API のない行(004 の判断1)。作るときに operations() へ移す。
      */
     public const array PENDING = [
-        'お知らせの作成・送信(005)',
-        'お知らせの閲覧(自分が宛先のもの)(005)',
         '既読・配信状況の確認、再通知(006)',
     ];
 
@@ -167,6 +165,36 @@ final class PermissionMatrix
                     array_map(fn (TeamRole $r) => $r->value, $roles),
                     array_map(fn (TeamRole $r) => $r->value, $allPlayers),
                 ) === [],
+            ],
+            // 予約中のお知らせの編集・取り消しは、作成者なら役割を問わずできる(相手は自分が作った予約)
+            'お知らせの作成・送信(005)' => [
+                'allowed' => [$rep, $officer, $coach],
+                'abilities' => ['createNotices', 'manageNotice'],
+                'calls' => [
+                    ['call' => fn (PermissionContext $c) => $c->test->postJson($c->url('/notices/recipient-count'), ['target' => ['type' => 'all', 'values' => []]])],
+                    ['call' => fn (PermissionContext $c) => $c->test->postJson($c->url('/notices'), ['title' => '連絡', 'body' => '本文', 'target' => ['type' => 'all', 'values' => []]])],
+                    ['call' => fn (PermissionContext $c) => $c->test->postJson($c->url('/notices'), ['title' => '予約', 'body' => '本文', 'target' => ['type' => 'all', 'values' => []], 'scheduled_at' => now()->addDay()->toIso8601String()])],
+                    ['call' => fn (PermissionContext $c) => $c->test->getJson($c->url('/notices/scheduled'))],
+                    ['call' => fn (PermissionContext $c) => $c->test->patchJson($c->url("/notices/{$c->ownScheduledNoticeId}"), ['title' => '直した予約'])],
+                    ['call' => fn (PermissionContext $c) => $c->test->deleteJson($c->url("/notices/{$c->ownScheduledNoticeId}"))],
+                ],
+            ],
+            'お知らせの閲覧(自分が宛先のもの)(005)' => [
+                'allowed' => [$rep, $officer, $coach, $parent],
+                'abilities' => ['viewNotices'],
+                'calls' => [
+                    ['call' => fn (PermissionContext $c) => $c->test->getJson($c->url('/notices'))],
+                    ['call' => fn (PermissionContext $c) => $c->test->getJson($c->url("/notices/{$c->receivedNoticeId}"))],
+                ],
+            ],
+            '他人の予約中のお知らせの編集・取り消し(005)' => [
+                'allowed' => [$rep, $officer],
+                'abilities' => ['manageAllNotices'],
+                'calls' => [
+                    ['call' => fn (PermissionContext $c) => $c->test->postJson($c->url('/notices/recipient-count'), ['target' => ['type' => 'all', 'values' => []], 'notice_id' => $c->othersScheduledNoticeId])],
+                    ['call' => fn (PermissionContext $c) => $c->test->patchJson($c->url("/notices/{$c->othersScheduledNoticeId}"), ['title' => '直した予約'])],
+                    ['call' => fn (PermissionContext $c) => $c->test->deleteJson($c->url("/notices/{$c->othersScheduledNoticeId}"))],
+                ],
             ],
             '監査ログの閲覧' => [
                 'allowed' => [$rep],

@@ -11,6 +11,7 @@ use App\Models\User;
 use Database\Factories\TeamFactory;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Route;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -233,6 +234,47 @@ class OpenApiContractTest extends AuthTestCase
         $this->check('PUT', '/api/teams/{team}/members/{membership}/roles', $this->putJson("{$base}/members/{$officer->id}/roles", ['roles' => ['coach']]));
         $this->check('POST', '/api/teams/{team}/representative', $this->postJson("{$base}/representative", ['membership_id' => $officer->id]));
         $this->check('DELETE', '/api/teams/{team}/members/{membership}', $this->deleteJson("{$base}/members/{$officer->id}"));
+    }
+
+    public function test_notice_responses_match_the_contract(): void
+    {
+        Http::fake(['*' => Http::response(['delivery_id' => 'dlv_X'], 202)]);
+        $this->logIn('rep@example.invalid');
+        $teamId = (string) $this->postJson('/api/teams', ['name' => 'つくばFC', 'sport' => 'soccer'])->json('id');
+        $team = Team::findOrFail($teamId);
+        $parent = User::factory()->create(['display_name' => '山田 母']);
+        TeamFactory::addMember($team, $parent, [TeamRole::Parent]);
+        $base = "/api/teams/{$teamId}/notices";
+        $input = ['title' => '連絡', 'body' => '本文', 'target' => ['type' => 'all', 'values' => []]];
+
+        $this->check('POST', '/api/teams/{team}/notices/recipient-count', $this->postJson("{$base}/recipient-count", ['target' => ['type' => 'grades', 'values' => ['e3']]]));
+        $this->check('POST', '/api/teams/{team}/notices/recipient-count', $this->postJson("{$base}/recipient-count", ['target' => ['type' => 'grades', 'values' => []]]));
+        $sent = $this->postJson($base, $input);
+        $this->check('POST', '/api/teams/{team}/notices', $sent);
+        $this->check('POST', '/api/teams/{team}/notices', $this->postJson($base, [...$input, 'scheduled_at' => now()->addMinute()->toIso8601String()]));
+        $scheduled = $this->postJson($base, [...$input, 'scheduled_at' => now()->addDay()->toIso8601String()]);
+        $this->check('POST', '/api/teams/{team}/notices', $scheduled);
+        $sentId = (int) $sent->json('notice.id');
+        $scheduledId = (int) $scheduled->json('notice.id');
+
+        $this->check('GET', '/api/teams/{team}/notices', $this->getJson($base));
+        $this->check('GET', '/api/teams/{team}/notices/{notice}', $this->getJson("{$base}/{$sentId}"));
+        $this->check('GET', '/api/teams/{team}/notices/{notice}', $this->getJson("{$base}/{$scheduledId}"));
+        $this->check('GET', '/api/teams/{team}/notices/scheduled', $this->getJson("{$base}/scheduled"));
+        $this->check('PATCH', '/api/teams/{team}/notices/{notice}', $this->patchJson("{$base}/{$scheduledId}", ['title' => '直した']));
+        $this->check('PATCH', '/api/teams/{team}/notices/{notice}', $this->patchJson("{$base}/{$scheduledId}", ['title' => '']));
+        $this->check('PATCH', '/api/teams/{team}/notices/{notice}', $this->patchJson("{$base}/{$sentId}", ['title' => '直した']));
+        $this->check('DELETE', '/api/teams/{team}/notices/{notice}', $this->deleteJson("{$base}/{$sentId}"));
+        $this->check('DELETE', '/api/teams/{team}/notices/{notice}', $this->deleteJson("{$base}/{$scheduledId}"));
+
+        $this->postJson('/api/auth/logout');
+        $this->actingAs($parent);
+        $this->check('GET', '/api/teams/{team}/notices', $this->getJson($base));
+        $this->check('POST', '/api/teams/{team}/notices', $this->postJson($base, $input));
+        $this->check('POST', '/api/teams/{team}/notices/recipient-count', $this->postJson("{$base}/recipient-count", ['target' => ['type' => 'all', 'values' => []]]));
+        $this->check('GET', '/api/teams/{team}/notices/scheduled', $this->getJson("{$base}/scheduled"));
+        $this->check('PATCH', '/api/teams/{team}/notices/{notice}', $this->patchJson("{$base}/{$sentId}", ['title' => 'x']));
+        $this->check('DELETE', '/api/teams/{team}/notices/{notice}', $this->deleteJson("{$base}/{$sentId}"));
     }
 
     public function test_rate_limited_token_endpoints_match_the_contract(): void

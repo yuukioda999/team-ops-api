@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Enums\TeamRole;
+use App\Models\Notice;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\User;
@@ -116,6 +117,42 @@ final class TeamPolicy
     public function viewAuditLogs(User $user, Team $team): bool
     {
         return $this->hasAny($user, $team, [TeamRole::Representative]);
+    }
+
+    /**
+     * お知らせの作成・送信・予約(AC-005-01・04・09)。
+     */
+    public function createNotices(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative, TeamRole::Officer, TeamRole::Coach]);
+    }
+
+    /**
+     * 自分が宛先のお知らせの閲覧(AC-005-14)。絞り込みは UseCase で行う。
+     */
+    public function viewNotices(User $user, Team $team): bool
+    {
+        return $user->rolesIn($team) !== [];
+    }
+
+    /**
+     * チームのすべての予約中のお知らせを見て、編集・取り消しできるか(AC-005-10、ADR-0017)。
+     */
+    public function manageAllNotices(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative, TeamRole::Officer]);
+    }
+
+    /**
+     * この予約中のお知らせを編集・取り消しできるか。作成者(今も作成できる役割を持つ)か、代表・役員(AC-005-10)。
+     */
+    public function manageNotice(User $user, Team $team, Notice $notice): bool
+    {
+        if ($this->manageAllNotices($user, $team)) {
+            return true;
+        }
+
+        return $notice->author_user_id === $user->id && $this->createNotices($user, $team);
     }
 
     /**
