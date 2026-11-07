@@ -140,20 +140,22 @@ class RosterVisibilityTest extends PlayerTestCase
         $this->assertSame([], $names('?grade=j1'));
 
         $this->actingAs($this->representative)->getJson($this->url().'?grade=e9')->assertUnprocessable()->assertJsonValidationErrors(['grade']);
+        $this->actingAs($this->member([TeamRole::Parent]))->getJson($this->url().'?grade=e3')->assertOk();
         $this->actingAs($this->representative)->getJson($this->url().'?number=abc')->assertUnprocessable()->assertJsonValidationErrors(['number']);
     }
 
     public function test_AC_003_08_the_team_tells_the_screen_what_the_member_may_do_with_the_roster(): void
     {
         $cases = [
-            [$this->representative, true, true],
-            [$this->member([TeamRole::Officer]), true, true],
-            [$this->member([TeamRole::Coach]), false, true],
-            [$this->member([TeamRole::Parent]), false, false],
+            [$this->representative, true, true, true],
+            [$this->member([TeamRole::Officer]), true, true, true],
+            [$this->member([TeamRole::Coach]), false, true, true],
+            [$this->member([TeamRole::Parent]), false, true, false],
         ];
-        foreach ($cases as [$user, $manage, $viewAll]) {
+        foreach ($cases as [$user, $manage, $view, $viewAll]) {
             $this->actingAs($user)->getJson("/api/teams/{$this->team->id}")
                 ->assertJsonPath('permissions.manage_players', $manage)
+                ->assertJsonPath('permissions.view_players', $view)
                 ->assertJsonPath('permissions.view_all_players', $viewAll);
         }
     }

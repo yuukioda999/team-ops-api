@@ -14,6 +14,7 @@ use Normalizer;
  */
 final class PlayerCsv
 {
+    /** ファイルの大きさの上限。判定は PlayerCsvRequest で行う(AC-003-17) */
     public const int MAX_BYTES = 1024 * 1024;
 
     public const int MAX_ROWS = 500;
@@ -37,10 +38,6 @@ final class PlayerCsv
 
     public static function parse(string $bytes): self
     {
-        if (strlen($bytes) > self::MAX_BYTES) {
-            self::fail('CSVファイルは1MBまでです。');
-        }
-
         // キーは見出しを含めた0始まりの位置。行番号はキー + 1(見出しが1行目、AC-003-15)
         $records = self::records(self::decode($bytes));
         $headerIndex = array_key_first($records);
@@ -51,7 +48,7 @@ final class PlayerCsv
         unset($records[$headerIndex]);
         $columns = self::columns($header);
         if (count($records) > self::MAX_ROWS) {
-            self::fail('CSVは'.self::MAX_ROWS.'行(見出しを除く)までです。'.count($records).'行あります。');
+            self::fail('CSVは'.self::MAX_ROWS.'行(見出しを除く)までです。行を減らしてください。');
         }
         if ($records === []) {
             self::fail('取り込む選手の行がありません。');
@@ -92,6 +89,7 @@ final class PlayerCsv
 
     /**
      * 空の行(Excel が末尾に足すものなど)は除く。行番号を保つため、キーは元の位置のまま詰めない。
+     * 見出しと上限を1行超えた時点で読むのをやめる。短い行を大量に並べたファイルでメモリを使い切らないため。
      *
      * @return array<int, list<string>>
      */
@@ -111,6 +109,9 @@ final class PlayerCsv
             $values = array_map(fn ($v) => (string) $v, $record);
             if (implode('', array_map(fn ($v) => SingleLineText::trim($v), $values)) !== '') {
                 $records[$index] = $values;
+                if (count($records) > self::MAX_ROWS + 1) {
+                    break;
+                }
             }
         }
         fclose($stream);

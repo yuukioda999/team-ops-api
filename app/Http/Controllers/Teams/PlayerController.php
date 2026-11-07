@@ -6,9 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Players\ListPlayersRequest;
 use App\Http\Requests\Players\PlayerRequest;
 use App\Http\Requests\Players\ReplaceGuardiansRequest;
+use App\Http\Resources\GuardianResource;
 use App\Http\Resources\PlayerResource;
 use App\Models\Team;
-use App\Models\TeamMembership;
 use App\Models\User;
 use App\UseCases\Players\CreatePlayer;
 use App\UseCases\Players\DeletePlayer;
@@ -24,12 +24,12 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * 名簿(003)。閲覧は役割に応じた範囲、変更は代表・役員だけ(TeamPolicy、ADR-0013)。
+ * FormRequest を使う操作は、その authorize() で権限を判定する。
  */
 final class PlayerController extends Controller
 {
     public function index(ListPlayersRequest $request, Team $team, ListPlayers $list): JsonResponse
     {
-        Gate::authorize('viewPlayers', $team);
         $result = $list($this->actor($request), $team, $request->grade(), $request->number());
 
         return new JsonResponse([
@@ -47,7 +47,6 @@ final class PlayerController extends Controller
 
     public function store(PlayerRequest $request, Team $team, CreatePlayer $create): JsonResponse
     {
-        Gate::authorize('managePlayers', $team);
         $result = $create($this->actor($request), $team, $request->player());
 
         return new JsonResponse([
@@ -58,7 +57,6 @@ final class PlayerController extends Controller
 
     public function update(PlayerRequest $request, Team $team, int $player, UpdatePlayer $update): JsonResponse
     {
-        Gate::authorize('managePlayers', $team);
 
         return new JsonResponse(['player' => (new PlayerResource($update($this->actor($request), $team, $player, $request->changes())))->resolve()]);
     }
@@ -73,7 +71,6 @@ final class PlayerController extends Controller
 
     public function guardians(ReplaceGuardiansRequest $request, Team $team, int $player, ReplaceGuardians $replace): JsonResponse
     {
-        Gate::authorize('managePlayers', $team);
 
         return new JsonResponse(['player' => (new PlayerResource($replace($this->actor($request), $team, $player, $request->membershipIds())))->resolve()]);
     }
@@ -83,10 +80,7 @@ final class PlayerController extends Controller
         Gate::authorize('managePlayers', $team);
 
         return new JsonResponse([
-            'candidates' => $candidates($team)->map(fn (TeamMembership $m) => [
-                'membership_id' => $m->id,
-                'display_name' => $m->user->display_name ?? null,
-            ])->values()->all(),
+            'candidates' => GuardianResource::collection($candidates($team))->resolve(),
         ]);
     }
 

@@ -52,8 +52,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/players', [PlayerController::class, 'index']);
         Route::post('/players', [PlayerController::class, 'store']);
         Route::get('/players/import/template', [PlayerImportController::class, 'template']);
-        Route::post('/players/import/preview', [PlayerImportController::class, 'preview']);
-        Route::post('/players/import', [PlayerImportController::class, 'store'])->name('players.import');
+        Route::post('/players/import/preview', [PlayerImportController::class, 'preview'])->middleware('throttle:player-import');
+        Route::post('/players/import', [PlayerImportController::class, 'store'])->middleware('throttle:player-import')->name('players.import');
         Route::get('/players/{player}', [PlayerController::class, 'show'])->where('player', '[0-9]{1,18}');
         Route::patch('/players/{player}', [PlayerController::class, 'update'])->where('player', '[0-9]{1,18}');
         Route::delete('/players/{player}', [PlayerController::class, 'destroy'])->where('player', '[0-9]{1,18}');

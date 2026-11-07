@@ -18,14 +18,11 @@ final class DuplicateFinder
      *
      * @return array<string, true>
      */
-    public function keysIn(Team $team, ?Grade $grade = null, ?int $exceptId = null): array
+    public function keysIn(Team $team, ?Grade $grade = null): array
     {
         $query = Player::where('team_id', $team->id);
         if ($grade !== null) {
             $query->where('grade', $grade);
-        }
-        if ($exceptId !== null) {
-            $query->whereKeyNot($exceptId);
         }
 
         $keys = [];
@@ -36,9 +33,9 @@ final class DuplicateFinder
         return $keys;
     }
 
-    public function exists(Team $team, string $displayName, Grade $grade, ?int $exceptId = null): bool
+    public function exists(Team $team, string $displayName, Grade $grade): bool
     {
-        return isset($this->keysIn($team, $grade, $exceptId)[self::key($displayName, $grade)]);
+        return isset($this->keysIn($team, $grade)[self::key($displayName, $grade)]);
     }
 
     public static function key(string $displayName, Grade $grade): string

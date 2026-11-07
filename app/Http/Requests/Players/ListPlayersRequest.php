@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Players;
 
 use App\Enums\Grade;
+use App\Models\Team;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -11,6 +12,16 @@ use Illuminate\Validation\Rule;
  */
 final class ListPlayersRequest extends FormRequest
 {
+    /**
+     * 入力の検査より先に権限を判定する。権限のない人には、内容によらず403を返す(TeamPolicy)。
+     */
+    public function authorize(): bool
+    {
+        $team = $this->route('team');
+
+        return $team instanceof Team && $this->user()?->can('viewPlayers', $team) === true;
+    }
+
     /**
      * @return array<string, mixed>
      */

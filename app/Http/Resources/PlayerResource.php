@@ -28,10 +28,7 @@ final class PlayerResource extends JsonResource
             'number' => $this->resource->number,
             'guardians' => $this->resource->guardians
                 ->sortBy('membership_id')
-                ->map(fn (PlayerGuardian $g) => [
-                    'membership_id' => $g->membership_id,
-                    'display_name' => $g->membership->user->display_name ?? null,
-                ])
+                ->map(fn (PlayerGuardian $g) => (new GuardianResource($g->membership))->resolve($request))
                 ->values()
                 ->all(),
         ];

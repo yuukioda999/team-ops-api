@@ -93,6 +93,7 @@ class GuardianTest extends PlayerTestCase
             $member = $this->member($roles);
             $this->actingAs($member)->getJson("/api/teams/{$this->team->id}/guardian-candidates")->assertForbidden();
             $this->actingAs($member)->putJson($this->url("/{$player->id}/guardians"), ['membership_ids' => []])->assertForbidden();
+            $this->actingAs($member)->putJson($this->url("/{$player->id}/guardians"), ['membership_ids' => 'x'])->assertForbidden();
         }
         $officer = $this->member([TeamRole::Officer]);
         $this->actingAs($officer)->getJson("/api/teams/{$this->team->id}/guardian-candidates")->assertOk();

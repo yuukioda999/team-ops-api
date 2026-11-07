@@ -50,7 +50,10 @@ class PlayerTest extends PlayerTestCase
     public function test_AC_003_01_a_coach_or_parent_cannot_register_a_player(): void
     {
         foreach ([[TeamRole::Coach], [TeamRole::Parent]] as $roles) {
-            $this->actingAs($this->member($roles))->postJson($this->url(), ['display_name' => '選手', 'grade' => 'e1'])->assertForbidden();
+            $member = $this->member($roles);
+            $this->actingAs($member)->postJson($this->url(), ['display_name' => '選手', 'grade' => 'e1'])->assertForbidden();
+            // 入力の検査より先に権限を判定する(不正な内容でも422ではなく403)
+            $this->actingAs($member)->postJson($this->url(), [])->assertForbidden();
         }
         $this->assertSame(0, Player::count());
     }
@@ -90,6 +93,7 @@ class PlayerTest extends PlayerTestCase
             $member = $this->member($roles);
             $this->link($player, $member);
             $this->actingAs($member)->patchJson($this->url("/{$player->id}"), ['grade' => 'e6'])->assertForbidden();
+            $this->actingAs($member)->patchJson($this->url("/{$player->id}"), ['grade' => 'e99'])->assertForbidden();
             $this->actingAs($member)->deleteJson($this->url("/{$player->id}"))->assertForbidden();
         }
         $this->assertSame(Grade::E3, $player->fresh()?->grade);
@@ -156,9 +160,11 @@ class PlayerTest extends PlayerTestCase
         $this->assertSame(['fields' => ['display_name', 'number']], $logs[1]->details);
         $this->assertSame(['guardians_unlinked' => 0], $logs[2]->details);
 
-        $raw = (string) DB::table('audit_logs')->pluck('details')->implode(' ');
-        $this->assertStringNotContainsString('山田', $raw);
-        $this->assertStringNotContainsString('一朗', json_encode(array_map(fn (AuditLog $l) => $l->details, $logs), JSON_UNESCAPED_UNICODE) ?: '');
+        // SQLite は日本語を \uXXXX の形で保存するので、読み出してから文字のまま並べて調べる
+        $details = json_encode(AuditLog::pluck('details')->all(), JSON_UNESCAPED_UNICODE) ?: '';
+        $this->assertStringContainsString('display_name', $details);
+        $this->assertStringNotContainsString('山田', $details);
+        $this->assertStringNotContainsString('一朗', $details);
     }
 
     public function test_AC_003_20_the_display_name_is_stored_encrypted(): void

@@ -4,6 +4,7 @@ namespace Tests\Feature\Players;
 
 use App\Enums\Grade;
 use App\Enums\TeamRole;
+use App\Models\AuditLog;
 use App\Models\Player;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -113,6 +114,19 @@ class CsvImportTest extends PlayerTestCase
         $this->assertNull($this->latestAudit('player.imported'));
     }
 
+    public function test_AC_003_14_the_preview_is_audited_with_counts_only(): void
+    {
+        $this->player('山田 太郎', Grade::E3);
+
+        $this->preview($this->lines(['山田 太郎,小3,10', '佐藤 次郎,小7,', '鈴木 三郎,小1,']))->assertOk();
+
+        $log = $this->latestAudit('player.import_checked');
+        $this->assertNotNull($log);
+        $this->assertSame($this->representative->id, $log->actor_user_id);
+        $this->assertEquals(['count' => 2, 'errors' => 1, 'warnings' => 1], $log->details);
+        $this->assertSame(1, Player::count());
+    }
+
     public function test_AC_003_15_line_numbers_count_the_header_as_line_one_even_with_blank_lines(): void
     {
         $content = "表示名,学年,背番号\r\n山田 太郎,小3,\r\n\r\n佐藤 次郎,小8,\r\n,,\r\n";
@@ -166,17 +180,36 @@ class CsvImportTest extends PlayerTestCase
         $this->preview($this->lines(array_map(fn (int $i) => "選手{$i},小1,", range(1, 500))))->assertOk()->assertJsonPath('count', 500);
 
         $content = $this->lines(array_map(fn (int $i) => "選手{$i},小1,", range(1, 501)));
-        $this->preview($content)->assertUnprocessable()->assertJsonPath('errors.file.0', 'CSVは500行(見出しを除く)までです。501行あります。');
+        $this->preview($content)->assertUnprocessable()->assertJsonPath('errors.file.0', 'CSVは500行(見出しを除く)までです。行を減らしてください。');
         $this->import($content)->assertUnprocessable();
         $this->assertSame(0, Player::count());
     }
 
-    public function test_AC_003_17_a_file_over_1mb_is_rejected_with_the_limit(): void
+    public function test_AC_003_17_a_file_of_exactly_1mb_is_accepted_and_one_byte_more_is_rejected(): void
     {
-        $content = $this->lines(['山田,小1,']).str_repeat(' ', 1024 * 1024);
+        $head = $this->lines(['山田,小1,']);
+        // 最後の行は空白だけなので、空の行として読み飛ばされる
+        $exact = $head.str_repeat(' ', 1024 * 1024 - strlen($head));
+        $over = $exact.' ';
+        $this->assertSame(1024 * 1024, strlen($exact));
 
-        $this->preview($content)->assertUnprocessable()->assertJsonPath('errors.file.0', 'CSVファイルは1MBまでです。');
+        $this->preview($exact)->assertOk()->assertJsonPath('count', 1);
+        $this->preview($over)->assertUnprocessable()->assertJsonPath('errors.file.0', 'CSVファイルは1MBまでです。');
+        $this->import($over)->assertUnprocessable()->assertJsonPath('errors.file.0', 'CSVファイルは1MBまでです。');
         $this->assertSame(0, Player::count());
+
+        $this->import($exact)->assertCreated()->assertExactJson(['imported' => 1]);
+    }
+
+    public function test_AC_003_17_a_file_of_many_short_lines_stops_at_the_row_limit(): void
+    {
+        // 1MB 以内に短い行を大量に並べても、上限を超えた時点で読むのをやめる
+        $content = "表示名,学年\n".str_repeat("a\n", 500000);
+        $this->assertLessThan(1024 * 1024, strlen($content));
+
+        $before = memory_get_usage();
+        $this->preview($content)->assertUnprocessable()->assertJsonPath('errors.file.0', 'CSVは500行(見出しを除く)までです。行を減らしてください。');
+        $this->assertLessThan(64 * 1024 * 1024, memory_get_peak_usage() - $before);
     }
 
     public function test_AC_003_18_values_starting_with_formula_characters_are_stored_as_plain_text(): void
@@ -197,10 +230,13 @@ class CsvImportTest extends PlayerTestCase
         $this->assertNotNull($log);
         $this->assertSame($this->representative->id, $log->actor_user_id);
         $this->assertEquals(['count' => 2, 'warnings' => 0], $log->details);
-        $this->assertStringNotContainsString('山田', (string) DB::table('audit_logs')->pluck('details')->implode(' '));
+        // SQLite は日本語を \uXXXX の形で保存するので、読み出してから文字のまま並べて調べる
+        $details = json_encode(AuditLog::pluck('details')->all(), JSON_UNESCAPED_UNICODE) ?: '';
+        $this->assertStringNotContainsString('山田', $details);
+        $this->assertStringNotContainsString('佐藤', $details);
     }
 
-    public function test_AC_003_19_the_200_player_limit_is_checked_on_preview_and_again_on_import(): void
+    public function test_AC_003_04_the_200_player_limit_is_checked_on_preview_and_again_on_import(): void
     {
         $now = now();
         DB::table('players')->insert(array_map(fn (int $i) => [
@@ -216,6 +252,36 @@ class CsvImportTest extends PlayerTestCase
         $this->assertSame(198, Player::count());
 
         $this->preview($content)->assertOk()->assertJsonPath('errors.0', ['line' => null, 'column' => null, 'message' => '選手は1チーム200人までです。今は198人なので、登録できるのはあと2人です。']);
+    }
+
+    public function test_AC_003_04_rows_with_errors_count_toward_the_200_player_limit(): void
+    {
+        $now = now();
+        DB::table('players')->insert(array_map(fn (int $i) => [
+            'team_id' => $this->team->id, 'display_name' => encrypt("選手{$i}", false), 'grade' => 'e1', 'number' => null, 'created_at' => $now, 'updated_at' => $now,
+        ], range(1, 198)));
+
+        // 取り込める行は2行だが、エラーの行も直せば取り込む行なので、3行として上限を判定する
+        $this->preview($this->lines(['A,小1,', 'B,小1,', 'C,小9,']))
+            ->assertOk()
+            ->assertJsonPath('count', 2)
+            ->assertJsonCount(2, 'errors')
+            ->assertJsonPath('errors.1.message', '選手は1チーム200人までです。今は198人なので、登録できるのはあと2人です。');
+        $this->preview($this->lines(['A,小1,', 'B,小1,']))->assertOk()->assertJsonPath('errors', []);
+    }
+
+    public function test_AC_003_17_the_preview_and_import_are_limited_to_10_a_minute_per_person(): void
+    {
+        $content = $this->lines(['山田,小1,']);
+        foreach (range(1, 10) as $_) {
+            $this->preview($content)->assertOk();
+        }
+        $this->preview($content)->assertTooManyRequests();
+        $this->import($content)->assertTooManyRequests();
+
+        // 他の人は数えない
+        $officer = $this->member([TeamRole::Officer]);
+        $this->actingAs($officer)->post($this->url('/import/preview'), ['file' => $this->csv($content)], ['Accept' => 'application/json'])->assertOk();
     }
 
     public function test_AC_003_21_duplicates_within_the_csv_and_against_the_roster_are_warnings_not_errors(): void
@@ -242,6 +308,7 @@ class CsvImportTest extends PlayerTestCase
             $member = $this->member($roles);
             $this->actingAs($member)->get($this->url('/import/template'), ['Accept' => 'application/json'])->assertForbidden();
             $this->actingAs($member)->post($this->url('/import/preview'), ['file' => $this->csv($content)], ['Accept' => 'application/json'])->assertForbidden();
+            $this->actingAs($member)->post($this->url('/import/preview'), [], ['Accept' => 'application/json'])->assertForbidden();
             $this->actingAs($member)->post($this->url('/import'), ['file' => $this->csv($content), 'file_hash' => hash('sha256', $content)], ['Accept' => 'application/json'])->assertForbidden();
         }
         $this->assertSame(0, Player::count());

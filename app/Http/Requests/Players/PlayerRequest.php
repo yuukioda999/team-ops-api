@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Players;
 
 use App\Enums\Grade;
+use App\Models\Team;
 use App\Support\Text\SingleLineText;
 use App\UseCases\Players\PlayerInput;
 use Illuminate\Foundation\Http\FormRequest;
@@ -13,6 +14,16 @@ use Illuminate\Validation\Rule;
  */
 final class PlayerRequest extends FormRequest
 {
+    /**
+     * 入力の検査より先に権限を判定する。権限のない人には、内容によらず403を返す(TeamPolicy)。
+     */
+    public function authorize(): bool
+    {
+        $team = $this->route('team');
+
+        return $team instanceof Team && $this->user()?->can('managePlayers', $team) === true;
+    }
+
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('display_name'))) {
