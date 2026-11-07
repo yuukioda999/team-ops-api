@@ -102,6 +102,15 @@ class NoticeStatusTest extends NoticeTestCase
         ]]);
     }
 
+    public function test_AC_006_04_the_notice_says_whether_it_is_mine(): void
+    {
+        $parent = $this->member([TeamRole::Parent], '保護者');
+        $notice = $this->send();
+
+        $this->actingAs($this->representative)->getJson($this->url("/{$notice->id}"))->assertJsonPath('notice.mine', true);
+        $this->actingAs($parent)->getJson($this->url("/{$notice->id}"))->assertJsonPath('notice.mine', false);
+    }
+
     public function test_AC_006_10_parents_and_other_coaches_cannot_see_the_status(): void
     {
         $parent = $this->member([TeamRole::Parent], '保護者');

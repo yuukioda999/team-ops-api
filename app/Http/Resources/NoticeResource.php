@@ -32,6 +32,8 @@ final class NoticeResource extends JsonResource
             'author_display_name' => $this->resource->author->display_name ?? null,
             // 自分宛ての一覧で、まだ開いていない(AC-006-03)。それ以外は false
             'unread' => (bool) $this->resource->getAttribute('unread'),
+            // 自分が作成した(画面で配信状況への導線を出すか決めるのに使う。判定は API の TeamPolicy で行う)
+            'mine' => $this->resource->author_user_id !== null && $this->resource->author_user_id === $request->user()?->getAuthIdentifier(),
         ];
     }
 }

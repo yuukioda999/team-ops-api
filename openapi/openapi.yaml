@@ -1594,7 +1594,7 @@ components:
     Notice:
       type: object
       additionalProperties: false
-      required: [id, title, body, target, status, scheduled_at, published_at, recipient_count, author_display_name, unread]
+      required: [id, title, body, target, status, scheduled_at, published_at, recipient_count, author_display_name, unread, mine]
       properties:
         id:
           type: integer
@@ -1631,6 +1631,9 @@ components:
         unread:
           type: boolean
           description: 自分宛ての一覧で、まだ開いていない(AC-006-03)。それ以外は false
+        mine:
+          type: boolean
+          description: 自分が作成した。画面で配信状況への導線を出すかに使う(判定は API で行う)
 
     NoticeDeliveryStatus:
       type: object
