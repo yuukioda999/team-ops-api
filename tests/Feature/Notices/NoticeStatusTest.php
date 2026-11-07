@@ -69,13 +69,14 @@ class NoticeStatusTest extends NoticeTestCase
         $coach = $this->member([TeamRole::Coach], 'コーチ');
         $notice = $this->send();
 
+        $this->assertSame('来週の試合', $this->deliveryStatus($notice)['title']);
         $this->assertSame(['state' => 'sending', 'recipients' => 4, 'read' => 0, 'unread' => 4, 'delivered' => 0, 'pending' => 4, 'failed' => 0, 'skipped' => 0],
-            array_diff_key($this->deliveryStatus($notice), ['reminders' => true]));
+            array_diff_key($this->deliveryStatus($notice), ['reminders' => true, 'title' => true]));
 
         $this->results($this->key($notice), [$parentA->id => ['delivered'], $parentB->id => ['failed', 'invalid_address']])->assertNoContent();
         $this->actingAs($parentA)->getJson($this->url("/{$notice->id}"))->assertOk();
         $this->assertSame(['state' => 'sending', 'recipients' => 4, 'read' => 1, 'unread' => 3, 'delivered' => 1, 'pending' => 2, 'failed' => 1, 'skipped' => 0],
-            array_diff_key($this->deliveryStatus($notice), ['reminders' => true]));
+            array_diff_key($this->deliveryStatus($notice), ['reminders' => true, 'title' => true]));
 
         $this->results($this->key($notice), [$coach->id => ['delivered'], $this->representative->id => ['skipped', 'expired']])->assertNoContent();
         $this->assertSame('done', $this->deliveryStatus($notice)['state']);

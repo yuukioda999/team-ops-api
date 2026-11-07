@@ -1638,8 +1638,11 @@ components:
     NoticeDeliveryStatus:
       type: object
       additionalProperties: false
-      required: [state, recipients, read, unread, delivered, pending, failed, skipped, reminders]
+      required: [title, state, recipients, read, unread, delivered, pending, failed, skipped, reminders]
       properties:
+        title:
+          type: string
+          description: お知らせの題名(状況の画面は詳細を開かずに出す。詳細を開くと既読になるため)
         state:
           type: string
           enum: [sending, done]

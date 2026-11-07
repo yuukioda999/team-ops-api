@@ -18,6 +18,7 @@ final class NoticeStatusSummary
 {
     /**
      * @return array{
+     *     title: string,
      *     state: 'sending'|'done',
      *     recipients: int, read: int, unread: int,
      *     delivered: int, pending: int, failed: int, skipped: int,
@@ -42,6 +43,8 @@ final class NoticeStatusSummary
         }
 
         return [
+            // 状況の画面はお知らせの詳細を開かずに題名を出す(詳細を開くと既読になるため)
+            'title' => $notice->title,
             'state' => $by[DeliveryStatus::Pending->value] > 0 ? 'sending' : 'done',
             'recipients' => $total,
             'read' => $read,
