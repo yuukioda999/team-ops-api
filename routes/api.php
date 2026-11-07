@@ -8,6 +8,8 @@ use App\Http\Controllers\HealthController;
 use App\Http\Controllers\Invitations\InvitationController as JoinController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\JoinRequestController;
+use App\Http\Controllers\Teams\PlayerController;
+use App\Http\Controllers\Teams\PlayerImportController;
 use App\Http\Controllers\Teams\TeamController;
 use Illuminate\Support\Facades\Route;
 
@@ -45,5 +47,17 @@ Route::middleware('auth:sanctum')->group(function () {
         // ID は PHP の整数に収まる18桁まで。それより長いものは、存在しない申請と同じ404にする(AC-000-01)
         Route::post('/join-requests/{joinRequest}/approve', [JoinRequestController::class, 'approve'])->where('joinRequest', '[0-9]{1,18}');
         Route::post('/join-requests/{joinRequest}/reject', [JoinRequestController::class, 'reject'])->where('joinRequest', '[0-9]{1,18}');
+
+        // 名簿(003)。閲覧の範囲と権限は TeamPolicy と RosterScope(ADR-0013)
+        Route::get('/players', [PlayerController::class, 'index']);
+        Route::post('/players', [PlayerController::class, 'store']);
+        Route::get('/players/import/template', [PlayerImportController::class, 'template']);
+        Route::post('/players/import/preview', [PlayerImportController::class, 'preview']);
+        Route::post('/players/import', [PlayerImportController::class, 'store'])->name('players.import');
+        Route::get('/players/{player}', [PlayerController::class, 'show'])->where('player', '[0-9]{1,18}');
+        Route::patch('/players/{player}', [PlayerController::class, 'update'])->where('player', '[0-9]{1,18}');
+        Route::delete('/players/{player}', [PlayerController::class, 'destroy'])->where('player', '[0-9]{1,18}');
+        Route::put('/players/{player}/guardians', [PlayerController::class, 'guardians'])->where('player', '[0-9]{1,18}');
+        Route::get('/guardian-candidates', [PlayerController::class, 'candidates']);
     });
 });

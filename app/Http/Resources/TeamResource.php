@@ -41,6 +41,8 @@ final class TeamResource extends JsonResource
             'permissions' => [
                 'manage_invitation' => $user !== null && Gate::forUser($user)->allows('manageInvitation', $this->resource),
                 'review_join_requests' => $user !== null && Gate::forUser($user)->allows('reviewJoinRequests', $this->resource),
+                'manage_players' => $user !== null && Gate::forUser($user)->allows('managePlayers', $this->resource),
+                'view_all_players' => $user !== null && Gate::forUser($user)->allows('viewAllPlayers', $this->resource),
             ],
         ];
     }

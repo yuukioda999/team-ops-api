@@ -32,6 +32,8 @@ tags:
     description: チーム
   - name: invitations
     description: 招待リンクと参加申請(002)
+  - name: players
+    description: 名簿と保護者の紐づけ(003)
 
 paths:
   /api/sanctum/csrf-cookie:
@@ -422,6 +424,304 @@ paths:
         '419':
           $ref: '#/components/responses/CsrfExpired'
 
+  /api/teams/{team}/players:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [players]
+      operationId: listPlayers
+      summary: 名簿
+      description: 代表・役員・コーチは全選手、保護者は自分に紐づく選手だけ(AC-003-08・09)。学年・背番号の順。開くたびに監査ログに残します(AC-003-11)。
+      parameters:
+        - name: grade
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Grade'
+        - name: number
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 999
+      responses:
+        '200':
+          description: 名簿
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Roster'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+    post:
+      tags: [players]
+      operationId: createPlayer
+      summary: 選手を登録する
+      description: 代表・役員だけ。同じ表示名・同じ学年の選手がいても登録し、possible_duplicate を true にします(AC-003-03)。1チーム200人まで(AC-003-04)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlayerInput'
+      responses:
+        '201':
+          description: 登録した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerCreated'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/players/{player}:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/PlayerId'
+    get:
+      tags: [players]
+      operationId: getPlayer
+      summary: 選手の詳細
+      description: 保護者が自分に紐づかない選手を指定すると、存在しない場合と同じ404です(AC-003-10)。
+      responses:
+        '200':
+          description: 選手
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [players]
+      operationId: updatePlayer
+      summary: 選手の情報を編集する
+      description: 代表・役員だけ。送った項目だけを変えます(AC-003-02)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlayerChanges'
+      responses:
+        '200':
+          description: 編集した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+    delete:
+      tags: [players]
+      operationId: deletePlayer
+      summary: 選手を削除する
+      description: 代表・役員だけ。行ごと消し、保護者との紐づけも外れます(AC-003-02)。
+      responses:
+        '204':
+          description: 削除した
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+
+  /api/teams/{team}/players/{player}/guardians:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/PlayerId'
+    put:
+      tags: [players]
+      operationId: replacePlayerGuardians
+      summary: 紐づける保護者を置き換える
+      description: 代表・役員だけ。保護者の役割を持つメンバーを4人まで(AC-003-05・07)。空の配列ですべて外します(AC-003-06)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardiansInput'
+      responses:
+        '200':
+          description: 置き換えた
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/guardian-candidates:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [players]
+      operationId: listGuardianCandidates
+      summary: 紐づけられるメンバー
+      description: 代表・役員だけ。保護者の役割を持つメンバーだけを返します(AC-003-07)。
+      responses:
+        '200':
+          description: 候補
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [candidates]
+                properties:
+                  candidates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Guardian'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/teams/{team}/players/import/template:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [players]
+      operationId: getPlayerImportTemplate
+      summary: 取り込み用のテンプレート CSV
+      description: 代表・役員だけ。見出し(表示名,学年,背番号)と記入例1行。UTF-8(BOM付き)です(AC-003-13)。
+      responses:
+        '200':
+          description: テンプレート
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/teams/{team}/players/import/preview:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    post:
+      tags: [players]
+      operationId: previewPlayerImport
+      summary: CSV を確認する
+      description: |
+        代表・役員だけ。登録はしません(AC-003-14)。行のエラーと重複の警告を返します(AC-003-15・21)。
+        文字コード・1MB・500行・見出しの問題は 422 です(AC-003-16・17)。確定には、返した file_hash と同じファイルを送ります(ADR-0014)。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PlayerCsvInput'
+      responses:
+        '200':
+          description: 確認の結果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerImportPreview'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/players/import:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    post:
+      tags: [players]
+      operationId: importPlayers
+      summary: CSV の取り込みを確定する
+      description: |
+        代表・役員だけ。確認したファイルと同じか(file_hash)を確かめ、もう一度すべて調べてから一括で登録します。
+        1件でもエラーがあれば1件も登録せず、422 の errors.file にエラーを返します(AC-003-15)。取り込んだ件数を監査ログに残します(AC-003-19)。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PlayerCsvInput'
+                - type: object
+                  required: [file_hash]
+                  properties:
+                    file_hash:
+                      type: string
+                      pattern: '^[0-9a-f]{64}$'
+                      description: 確認の応答の file_hash
+      responses:
+        '201':
+          description: 取り込んだ
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [imported]
+                properties:
+                  imported:
+                    type: integer
+                    description: 登録した選手の数
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
   /api/invitations/preview:
     post:
       tags: [invitations]
@@ -525,6 +825,13 @@ components:
       schema:
         type: string
         pattern: '^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$'
+    PlayerId:
+      name: player
+      in: path
+      required: true
+      description: 選手のID
+      schema:
+        type: integer
     JoinRequestId:
       name: joinRequest
       in: path
@@ -697,12 +1004,18 @@ components:
           type: object
           additionalProperties: false
           description: 画面の出し分け用。判定は API の TeamPolicy と同じ
-          required: [manage_invitation, review_join_requests]
+          required: [manage_invitation, review_join_requests, manage_players, view_all_players]
           properties:
             manage_invitation:
               type: boolean
             review_join_requests:
               type: boolean
+            manage_players:
+              type: boolean
+              description: 選手の登録・編集・削除、保護者の紐づけ、CSV の取り込み(代表・役員)
+            view_all_players:
+              type: boolean
+              description: 全選手の名簿を見られる(代表・役員・コーチ)。false なら自分に紐づく選手だけ
 
     MyJoinRequest:
       type: object
@@ -823,6 +1136,179 @@ components:
           items:
             type: string
             enum: [parent, coach]
+
+    Grade:
+      type: string
+      description: 未就学・小1〜小6・中1〜中3
+      enum: [preschool, e1, e2, e3, e4, e5, e6, j1, j2, j3]
+
+    Guardian:
+      type: object
+      additionalProperties: false
+      required: [membership_id, display_name]
+      properties:
+        membership_id:
+          type: integer
+          description: チームのメンバーのID
+        display_name:
+          type: [string, 'null']
+
+    Player:
+      type: object
+      additionalProperties: false
+      required: [id, display_name, grade, number, guardians]
+      properties:
+        id:
+          type: integer
+        display_name:
+          type: string
+        grade:
+          $ref: '#/components/schemas/Grade'
+        number:
+          type: [integer, 'null']
+          description: 背番号
+        guardians:
+          type: array
+          description: 紐づく保護者。保護者が見る場合は、自分の子どもに紐づく保護者だけ
+          items:
+            $ref: '#/components/schemas/Guardian'
+
+    Roster:
+      type: object
+      additionalProperties: false
+      required: [scope, players]
+      properties:
+        scope:
+          type: string
+          enum: [all, own]
+          description: all は全選手、own は自分に紐づく選手だけ
+        players:
+          type: array
+          items:
+            $ref: '#/components/schemas/Player'
+
+    PlayerEnvelope:
+      type: object
+      additionalProperties: false
+      required: [player]
+      properties:
+        player:
+          $ref: '#/components/schemas/Player'
+
+    PlayerCreated:
+      type: object
+      additionalProperties: false
+      required: [player, possible_duplicate]
+      properties:
+        player:
+          $ref: '#/components/schemas/Player'
+        possible_duplicate:
+          type: boolean
+          description: 同じ表示名・同じ学年の選手がすでにいた(AC-003-03)
+
+    PlayerInput:
+      type: object
+      required: [display_name, grade]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 30
+          description: 前後の空白(全角を含む)は取り除く。改行などの制御文字は使えない
+        grade:
+          $ref: '#/components/schemas/Grade'
+        number:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 999
+
+    PlayerChanges:
+      type: object
+      description: 送った項目だけを変える
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 30
+        grade:
+          $ref: '#/components/schemas/Grade'
+        number:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 999
+
+    GuardiansInput:
+      type: object
+      required: [membership_ids]
+      properties:
+        membership_ids:
+          type: array
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: integer
+
+    PlayerCsvInput:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: CSV(UTF-8 か Shift_JIS、1MB・500行まで)。見出しは「表示名,学年,背番号」
+
+    CsvProblem:
+      type: object
+      additionalProperties: false
+      required: [line, column, message]
+      properties:
+        line:
+          type: [integer, 'null']
+          description: 行番号(見出しが1行目)。ファイル全体の問題は null
+        column:
+          type: [string, 'null']
+          description: 列の見出し
+        message:
+          type: string
+          description: 例:「3行目 学年:『小7』は選べません(未就学、小1〜小6、中1〜中3)」
+
+    PlayerImportPreview:
+      type: object
+      additionalProperties: false
+      required: [file_hash, count, rows, errors, warnings]
+      properties:
+        file_hash:
+          type: string
+          description: 確定のときに送る、このファイルの SHA-256
+        count:
+          type: integer
+          description: 取り込める行の数
+        rows:
+          type: array
+          description: 先頭10行
+          items:
+            type: object
+            additionalProperties: false
+            required: [line, display_name, grade, number]
+            properties:
+              line:
+                type: integer
+              display_name:
+                type: string
+              grade:
+                $ref: '#/components/schemas/Grade'
+              number:
+                type: [integer, 'null']
+        errors:
+          type: array
+          description: 1件でもあれば確定できない
+          items:
+            $ref: '#/components/schemas/CsvProblem'
+        warnings:
+          type: array
+          description: 重複の可能性(確定はできる。AC-003-21)
+          items:
+            $ref: '#/components/schemas/CsvProblem'
 
   responses:
     Unauthenticated:

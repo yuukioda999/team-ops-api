@@ -29,6 +29,30 @@ final class TeamPolicy
     }
 
     /**
+     * 選手の登録・編集・削除、保護者の紐づけ、CSV の取り込み(AC-003-01〜07・13〜19)。
+     */
+    public function managePlayers(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative, TeamRole::Officer]);
+    }
+
+    /**
+     * 全選手の名簿の閲覧(AC-003-08・12)。
+     */
+    public function viewAllPlayers(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative, TeamRole::Officer, TeamRole::Coach]);
+    }
+
+    /**
+     * 名簿を開けるか。保護者は自分に紐づく選手だけを見る(AC-003-09)。絞り込みは UseCase で行う。
+     */
+    public function viewPlayers(User $user, Team $team): bool
+    {
+        return $this->viewAllPlayers($user, $team) || $this->hasAny($user, $team, [TeamRole::Parent]);
+    }
+
+    /**
      * @param  list<TeamRole>  $roles
      */
     private function hasAny(User $user, Team $team, array $roles): bool
