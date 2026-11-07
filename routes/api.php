@@ -6,8 +6,10 @@ use App\Http\Controllers\Auth\MeController;
 use App\Http\Controllers\Auth\SessionController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\Invitations\InvitationController as JoinController;
+use App\Http\Controllers\Teams\AuditLogController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\JoinRequestController;
+use App\Http\Controllers\Teams\MemberController;
 use App\Http\Controllers\Teams\PlayerController;
 use App\Http\Controllers\Teams\PlayerImportController;
 use App\Http\Controllers\Teams\TeamController;
@@ -38,6 +40,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // 新しいルートをこの外に置くと、tests/Tenancy のルートの検査が落ちる
     Route::prefix('/teams/{team}')->group(function () {
         Route::get('/', [TeamController::class, 'show']);
+        Route::patch('/', [TeamController::class, 'update']);
+
+        // メンバーの管理と監査ログ(004、ADR-0015)
+        Route::get('/members', [MemberController::class, 'index']);
+        Route::put('/members/{membership}/roles', [MemberController::class, 'roles'])->where('membership', '[0-9]{1,18}');
+        Route::delete('/members/{membership}', [MemberController::class, 'destroy'])->where('membership', '[0-9]{1,18}');
+        Route::post('/representative', [MemberController::class, 'transfer']);
+        Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
         // 招待リンクと参加申請の承認(002)。権限は TeamPolicy(ADR-0011)
         Route::get('/invitation', [InvitationController::class, 'show']);

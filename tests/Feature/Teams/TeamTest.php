@@ -26,7 +26,7 @@ class TeamTest extends TestCase
             ->assertJsonPath('name', 'つくばFC U-10')
             ->assertJsonPath('sport', 'soccer')
             ->assertJsonPath('roles', ['representative'])
-            ->assertJsonPath('permissions', ['manage_invitation' => true, 'review_join_requests' => true, 'manage_players' => true, 'view_players' => true, 'view_all_players' => true]);
+            ->assertJsonPath('permissions', ['manage_invitation' => true, 'review_join_requests' => true, 'manage_players' => true, 'update_team' => true, 'view_members' => true, 'manage_roles' => true, 'remove_members' => true, 'view_audit_logs' => true, 'view_players' => true, 'view_all_players' => true]);
 
         $team = Team::findOrFail((string) $response->json('id'));
         $this->assertSame($user->id, $team->created_by);

@@ -12,6 +12,26 @@ enum TeamRole: string
     case Coach = 'coach';
     case Parent = 'parent';
 
+    public function label(): string
+    {
+        return match ($this) {
+            self::Representative => '代表',
+            self::Officer => '役員',
+            self::Coach => 'コーチ',
+            self::Parent => '保護者',
+        };
+    }
+
+    /**
+     * 役割の変更で付け外しできる役割。代表は交代でしか動かない(ADR-0015)。
+     *
+     * @return list<self>
+     */
+    public static function changeable(): array
+    {
+        return [self::Officer, self::Coach, self::Parent];
+    }
+
     /**
      * 参加申請の承認で付けられる役割。役員・代表の任命は 004 の役割変更で代表だけが行う(AC-002-14)。
      *

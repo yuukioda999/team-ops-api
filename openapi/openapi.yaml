@@ -34,6 +34,8 @@ tags:
     description: 招待リンクと参加申請(002)
   - name: players
     description: 名簿と保護者の紐づけ(003)
+  - name: members
+    description: メンバーの管理と監査ログ(004)
 
 paths:
   /api/sanctum/csrf-cookie:
@@ -278,6 +280,212 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '404':
           $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [teams]
+      operationId: updateTeam
+      summary: チーム名・競技を変える
+      description: 代表だけ。送った項目だけを変えます。検査はチーム作成と同じです(AC-004-11)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTeamInput'
+      responses:
+        '200':
+          description: 変えた
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/members:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [members]
+      operationId: listMembers
+      summary: メンバー一覧
+      description: 代表・役員だけ。表示名と役割だけを返します(メールアドレスは返しません、ADR-0015)。代表が先頭です。
+      responses:
+        '200':
+          description: メンバー一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [members]
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Member'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/teams/{team}/members/{membership}/roles:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/MembershipId'
+    put:
+      tags: [members]
+      operationId: changeMemberRoles
+      summary: 役割を置き換える
+      description: |
+        代表だけ。代表を除く役割(役員・コーチ・保護者)の一覧に置き換え、本人にメールで知らせます(AC-004-03)。
+        代表のメンバーは代表のまま、ほかの役割だけが変わります。役割が1つも残らない一覧は 422 です(AC-004-09)。
+        保護者を外すと、選手との紐づけも外れます。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roles]
+              properties:
+                roles:
+                  type: array
+                  maxItems: 3
+                  uniqueItems: true
+                  items:
+                    type: string
+                    enum: [officer, coach, parent]
+      responses:
+        '200':
+          description: 変えた
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/members/{membership}:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/MembershipId'
+    delete:
+      tags: [members]
+      operationId: removeMember
+      summary: 除名する
+      description: |
+        代表・役員だけ。役員は、代表と役員の役割を持つメンバーを除名できません(403、AC-004-07)。
+        自分は除名できません(422、AC-004-06)。除名すると、役割と選手との紐づけも外れます(AC-004-08)。本人にはメールしません。
+      responses:
+        '204':
+          description: 除名した
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/representative:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    post:
+      tags: [members]
+      operationId: transferRepresentative
+      summary: 代表を交代する
+      description: |
+        代表だけ。役員のメンバーだけを指定できます(それ以外は 422、AC-004-05)。
+        新しい代表は役員から代表に、元の代表は役員になり、両者にメールで知らせます(AC-004-04)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [membership_id]
+              properties:
+                membership_id:
+                  type: integer
+                  description: 新しい代表にするメンバーのID
+      responses:
+        '200':
+          description: 交代した(新しい代表)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/audit-logs:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [members]
+      operationId: listAuditLogs
+      summary: 監査ログ
+      description: 代表だけ。新しい順に100件ずつ(AC-004-12)。続きは `next_before` を `before` に渡して取ります。記録の中身(ID など)は返しません。
+      parameters:
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 監査ログ
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [logs, next_before]
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLogEntry'
+                  next_before:
+                    type: [integer, 'null']
+                    description: 続きがあるとき、次に before に渡す値
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
 
   /api/teams/{team}/invitation:
     parameters:
@@ -830,6 +1038,13 @@ components:
       schema:
         type: string
         pattern: '^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$'
+    MembershipId:
+      name: membership
+      in: path
+      required: true
+      description: チームのメンバーのID
+      schema:
+        type: integer
     PlayerId:
       name: player
       in: path
@@ -925,6 +1140,66 @@ components:
         sport:
           $ref: '#/components/schemas/Sport'
 
+    UpdateTeamInput:
+      type: object
+      description: 送った項目だけを変える
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        sport:
+          $ref: '#/components/schemas/Sport'
+
+    Member:
+      type: object
+      additionalProperties: false
+      required: [membership_id, display_name, roles, is_me]
+      properties:
+        membership_id:
+          type: integer
+        display_name:
+          type: [string, 'null']
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamRole'
+        is_me:
+          type: boolean
+          description: 自分自身か
+
+    MemberEnvelope:
+      type: object
+      additionalProperties: false
+      required: [member]
+      properties:
+        member:
+          $ref: '#/components/schemas/Member'
+
+    AuditLogEntry:
+      type: object
+      additionalProperties: false
+      required: [id, created_at, action, action_label, actor, actor_display_name]
+      properties:
+        id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        action:
+          type: string
+          description: 操作の種類(例:member.roles_changed)
+        action_label:
+          type: string
+          description: 操作の種類の日本語(例:メンバーの役割を変更)
+        actor:
+          type: string
+          enum: [member, former]
+          description: member は今のメンバー、former はすでにチームにいない人(アカウントが消えた人を含む)
+        actor_display_name:
+          type: [string, 'null']
+          description: actor が member のときだけ
+
     Sport:
       type: string
       enum: [soccer, baseball, other]
@@ -1009,7 +1284,7 @@ components:
           type: object
           additionalProperties: false
           description: 画面の出し分け用。判定は API の TeamPolicy と同じ
-          required: [manage_invitation, review_join_requests, manage_players, view_players, view_all_players]
+          required: [manage_invitation, review_join_requests, manage_players, view_players, view_all_players, update_team, view_members, manage_roles, remove_members, view_audit_logs]
           properties:
             manage_invitation:
               type: boolean
@@ -1018,6 +1293,21 @@ components:
             manage_players:
               type: boolean
               description: 選手の登録・編集・削除、保護者の紐づけ、CSV の取り込み(代表・役員)
+            update_team:
+              type: boolean
+              description: チーム名・競技を変えられる(代表)
+            view_members:
+              type: boolean
+              description: メンバー一覧を見られる(代表・役員)
+            manage_roles:
+              type: boolean
+              description: 役割の変更と代表の交代ができる(代表)
+            remove_members:
+              type: boolean
+              description: メンバーを除名できる(代表・役員。役員は代表と役員を除名できない)
+            view_audit_logs:
+              type: boolean
+              description: 監査ログを見られる(代表)
             view_players:
               type: boolean
               description: 名簿を開ける(代表・役員・コーチ・保護者)

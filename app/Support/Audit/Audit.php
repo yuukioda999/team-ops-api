@@ -30,6 +30,11 @@ final class Audit
             }
         }
 
+        // subject_id は数値の列。ULID のモデル(チームなど)を渡すと MySQL で落ちるので、ここで止める
+        if ($subject !== null && ! is_int($subject->getKey())) {
+            throw new InvalidArgumentException('The audit subject must have an integer key; the team itself is identified by team_id.');
+        }
+
         return AuditLog::create([
             'team_id' => $team->id,
             'actor_user_id' => $actor?->id,
