@@ -203,6 +203,38 @@ class OpenApiContractTest extends AuthTestCase
         $this->check('POST', '/api/teams/{team}/players/import', $this->post("{$base}/players/import", ['file' => UploadedFile::fake()->createWithContent('p.csv', $good), 'file_hash' => hash('sha256', $good)], ['Accept' => 'application/json']));
     }
 
+    public function test_member_and_audit_log_responses_match_the_contract(): void
+    {
+        $this->logIn('rep@example.invalid');
+        $teamId = (string) $this->postJson('/api/teams', ['name' => 'つくばFC', 'sport' => 'soccer'])->json('id');
+        $team = Team::findOrFail($teamId);
+        $parent = TeamFactory::addMember($team, User::factory()->create(['display_name' => '山田 母']), [TeamRole::Parent]);
+        $officerUser = User::factory()->create(['display_name' => '佐藤 役員']);
+        $officer = TeamFactory::addMember($team, $officerUser, [TeamRole::Officer]);
+        $base = "/api/teams/{$teamId}";
+
+        $this->check('PATCH', '/api/teams/{team}', $this->patchJson($base, ['name' => 'つくばFC U-12']));
+        $this->check('PATCH', '/api/teams/{team}', $this->patchJson($base, ['name' => '']));
+        $this->check('GET', '/api/teams/{team}/members', $this->getJson("{$base}/members"));
+        $this->check('PUT', '/api/teams/{team}/members/{membership}/roles', $this->putJson("{$base}/members/{$parent->id}/roles", ['roles' => ['coach', 'parent']]));
+        $this->check('PUT', '/api/teams/{team}/members/{membership}/roles', $this->putJson("{$base}/members/{$parent->id}/roles", ['roles' => []]));
+        $this->check('PUT', '/api/teams/{team}/members/{membership}/roles', $this->putJson("{$base}/members/999999/roles", ['roles' => ['coach']]));
+        $this->check('POST', '/api/teams/{team}/representative', $this->postJson("{$base}/representative", ['membership_id' => $parent->id]));
+        $this->check('GET', '/api/teams/{team}/audit-logs', $this->getJson("{$base}/audit-logs"));
+        $this->check('GET', '/api/teams/{team}/audit-logs', $this->getJson("{$base}/audit-logs?before=x"));
+        $this->check('DELETE', '/api/teams/{team}/members/{membership}', $this->deleteJson("{$base}/members/{$parent->id}"));
+        $this->check('DELETE', '/api/teams/{team}/members/{membership}', $this->deleteJson("{$base}/members/{$parent->id}"));
+        $this->check('POST', '/api/teams/{team}/representative', $this->postJson("{$base}/representative", ['membership_id' => $officer->id]));
+
+        // 交代のあと、元の代表は役員。代表だけの操作は 403
+        $this->check('GET', '/api/teams/{team}', $this->getJson($base));
+        $this->check('PATCH', '/api/teams/{team}', $this->patchJson($base, ['name' => 'x']));
+        $this->check('GET', '/api/teams/{team}/audit-logs', $this->getJson("{$base}/audit-logs"));
+        $this->check('PUT', '/api/teams/{team}/members/{membership}/roles', $this->putJson("{$base}/members/{$officer->id}/roles", ['roles' => ['coach']]));
+        $this->check('POST', '/api/teams/{team}/representative', $this->postJson("{$base}/representative", ['membership_id' => $officer->id]));
+        $this->check('DELETE', '/api/teams/{team}/members/{membership}', $this->deleteJson("{$base}/members/{$officer->id}"));
+    }
+
     public function test_rate_limited_token_endpoints_match_the_contract(): void
     {
         $this->logIn('coach@example.invalid');

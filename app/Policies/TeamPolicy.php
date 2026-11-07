@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Enums\TeamRole;
 use App\Models\Team;
+use App\Models\TeamMembership;
 use App\Models\User;
 
 /**
@@ -50,6 +51,71 @@ final class TeamPolicy
     public function viewPlayers(User $user, Team $team): bool
     {
         return $this->viewAllPlayers($user, $team) || $this->hasAny($user, $team, [TeamRole::Parent]);
+    }
+
+    /**
+     * チーム名・競技の変更(AC-004-11)。
+     */
+    public function updateTeam(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative]);
+    }
+
+    /**
+     * メンバー一覧(表示名と役割)の閲覧(004 の権限表、ADR-0015)。
+     */
+    public function viewMembers(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative, TeamRole::Officer]);
+    }
+
+    /**
+     * 役割の変更(役員の任命・解任を含む、AC-004-03)。
+     */
+    public function manageRoles(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative]);
+    }
+
+    /**
+     * 代表の交代(AC-004-04)。
+     */
+    public function transferRepresentative(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative]);
+    }
+
+    /**
+     * メンバーを除名できる立場か(画面の表示用)。相手ごとの判定は removeMember。
+     */
+    public function removeMembers(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative, TeamRole::Officer]);
+    }
+
+    /**
+     * このメンバーを除名できるか。役員は、代表と役員の役割を持つメンバーを除名できない(AC-004-07)。
+     * 代表が自分を除名する場合は、UseCase で「先に代表を交代して」と返す(AC-004-06)。
+     */
+    public function removeMember(User $user, Team $team, TeamMembership $target): bool
+    {
+        if ($this->hasAny($user, $team, [TeamRole::Representative])) {
+            return true;
+        }
+        if (! $this->hasAny($user, $team, [TeamRole::Officer])) {
+            return false;
+        }
+        $targetRoles = $target->roleList();
+
+        return ! in_array(TeamRole::Representative, $targetRoles, true) && ! in_array(TeamRole::Officer, $targetRoles, true);
+    }
+
+    /**
+     * 監査ログの閲覧(AC-004-12)。
+     */
+    public function viewAuditLogs(User $user, Team $team): bool
+    {
+        return $this->hasAny($user, $team, [TeamRole::Representative]);
     }
 
     /**
