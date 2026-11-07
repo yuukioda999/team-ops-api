@@ -53,7 +53,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // お知らせ(005、ADR-0017・0018)
         Route::get('/notices', [NoticeController::class, 'index']);
         Route::post('/notices', [NoticeController::class, 'store']);
-        Route::post('/notices/recipient-count', [NoticeController::class, 'count']);
+        Route::post('/notices/recipient-count', [NoticeController::class, 'count'])->middleware('throttle:recipient-count');
         Route::get('/notices/scheduled', [NoticeController::class, 'scheduled']);
         Route::get('/notices/{notice}', [NoticeController::class, 'show'])->where('notice', '[0-9]{1,18}');
         Route::patch('/notices/{notice}', [NoticeController::class, 'update'])->where('notice', '[0-9]{1,18}');

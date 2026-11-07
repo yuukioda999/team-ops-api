@@ -83,9 +83,10 @@ class PermissionMatrixTest extends TestCase
         $own = Notice::create(['team_id' => $team->id, 'author_user_id' => $actor->id, 'title' => '自分の予約', 'body' => '本文', 'target_type' => NoticeTarget::All, 'target_values' => [], 'status' => NoticeStatus::Scheduled, 'scheduled_at' => now()->addDay()]);
         $received = Notice::create(['team_id' => $team->id, 'author_user_id' => $representative->id, 'title' => '届いた連絡', 'body' => '本文', 'target_type' => NoticeTarget::All, 'target_values' => [], 'status' => NoticeStatus::Published, 'published_at' => now(), 'recipient_count' => 1]);
         $received->recipients()->create(['user_id' => $actor->id]);
+        $others = Notice::create(['team_id' => $team->id, 'author_user_id' => $nextRepresentative->user_id, 'title' => '他人の予約', 'body' => '本文', 'target_type' => NoticeTarget::All, 'target_values' => [], 'status' => NoticeStatus::Scheduled, 'scheduled_at' => now()->addDay()]);
 
         $this->actingAs($actor);
-        $context = new PermissionContext($this, $team, $target->id, $nextRepresentative->id, $player->id, [$joinRequestIds[0], $joinRequestIds[1]], $own->id, $received->id);
+        $context = new PermissionContext($this, $team, $target->id, $nextRepresentative->id, $player->id, [$joinRequestIds[0], $joinRequestIds[1]], $own->id, $received->id, $others->id);
         foreach ($spec['calls'] as $i => $step) {
             $response = ($step['call'])($context);
             if ($allowed) {

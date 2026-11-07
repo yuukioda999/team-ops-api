@@ -8,6 +8,9 @@ use App\Enums\TeamRole;
 use App\Models\Notice;
 use App\Models\NoticeRecipient;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * 予約送信(AC-005-09〜13、ADR-0018)。
@@ -136,5 +139,69 @@ class ScheduleNoticeTest extends NoticeTestCase
         $id = $this->schedule(60);
         $this->actingAs($this->representative)->patchJson($this->url("/{$id}"), ['scheduled_at' => now()->addMinute()->toIso8601String()])
             ->assertUnprocessable()->assertJsonPath('errors.scheduled_at.0', $message);
+    }
+
+    public function test_AC_005_09_AC_005_11_a_time_with_an_offset_is_stored_in_utc_and_published_at_that_moment(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-08T12:00:00Z'));
+        // 日本時間の翌朝7時 = UTC の 22時
+        $id = (int) $this->actingAs($this->representative)
+            ->postJson($this->url(), $this->input(['scheduled_at' => '2026-11-09T07:00:00+09:00']))
+            ->assertCreated()
+            ->assertJsonPath('notice.scheduled_at', '2026-11-08T22:00:00+00:00')
+            ->json('notice.id');
+        $this->assertSame('2026-11-08 22:00:00', DB::table('notices')->where('id', $id)->value('scheduled_at'));
+
+        $this->travelTo(Carbon::parse('2026-11-08T21:59:00Z'));
+        $this->runCommand('notices:publish-due');
+        $this->assertSame(NoticeStatus::Scheduled, Notice::findOrFail($id)->status);
+
+        $this->travelTo(Carbon::parse('2026-11-08T22:00:30Z'));
+        $this->runCommand('notices:publish-due');
+        $this->assertSame(NoticeStatus::Published, Notice::findOrFail($id)->status);
+
+        // 編集でも同じく UTC に直す
+        $other = $this->schedule(60);
+        $this->actingAs($this->representative)->patchJson($this->url("/{$other}"), ['scheduled_at' => '2026-11-09T09:30:00+09:00'])
+            ->assertOk()
+            ->assertJsonPath('notice.scheduled_at', '2026-11-09T00:30:00+00:00');
+    }
+
+    public function test_AC_005_11_a_failing_notice_does_not_stop_the_others(): void
+    {
+        $first = $this->schedule(10, '先の予約');
+        $second = $this->schedule(20, '後の予約');
+        // 先の予約の宛先の種類を読めない値にして、公開を失敗させる
+        DB::table('notices')->where('id', $first)->update(['target_type' => 'broken']);
+        $log = Log::spy();
+
+        $this->travel(1)->hours();
+        $this->runCommand('notices:publish-due');
+
+        $this->assertSame('scheduled', DB::table('notices')->where('id', $first)->value('status'));
+        $this->assertSame(NoticeStatus::Published, Notice::findOrFail($second)->status);
+        $log->shouldHaveReceived('error')->once()->withArgs(fn (string $message, array $context) => $context['notice_id'] === $first && ! str_contains(json_encode($context) ?: '', '先の予約'));
+    }
+
+    public function test_AC_005_02_the_count_for_editing_uses_the_author_as_the_sender(): void
+    {
+        $coach = $this->member([TeamRole::Coach], 'コーチ');
+        $otherCoach = $this->member([TeamRole::Coach], '別のコーチ');
+        $id = (int) $this->actingAs($coach)->postJson($this->url(), $this->input(['scheduled_at' => now()->addHour()->toIso8601String()]))->json('notice.id');
+        $target = ['type' => 'roles', 'values' => ['coach']];
+
+        // 代表が予約を指定して数えると、送信者は作成者のコーチ。コーチ2人だけ
+        $this->actingAs($this->representative)->postJson($this->url('/recipient-count'), ['target' => $target, 'notice_id' => $id])->assertOk()->assertJsonPath('count', 2);
+        // 予約を指定しなければ、数える人(代表)が送信者。コーチ2人 + 代表
+        $this->actingAs($this->representative)->postJson($this->url('/recipient-count'), ['target' => $target])->assertOk()->assertJsonPath('count', 3);
+        // 扱えない予約は 403、別チームや無い予約は 404
+        $this->actingAs($otherCoach)->postJson($this->url('/recipient-count'), ['target' => $target, 'notice_id' => $id])->assertForbidden();
+        $this->actingAs($coach)->postJson($this->url('/recipient-count'), ['target' => $target, 'notice_id' => 999999])->assertNotFound();
+
+        // 公開すると、数えた人数と同じ
+        $this->actingAs($this->representative)->patchJson($this->url("/{$id}"), ['target' => $target])->assertOk();
+        $this->travel(2)->hours();
+        $this->runCommand('notices:publish-due');
+        $this->assertSame(2, Notice::findOrFail($id)->recipient_count);
     }
 }

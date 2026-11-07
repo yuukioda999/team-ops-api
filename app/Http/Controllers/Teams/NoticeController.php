@@ -3,15 +3,16 @@
 namespace App\Http\Controllers\Teams;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Notices\ListNoticesRequest;
 use App\Http\Requests\Notices\NoticeRequest;
 use App\Http\Requests\Notices\RecipientCountRequest;
 use App\Http\Resources\NoticeResource;
 use App\Models\Team;
 use App\Models\User;
 use App\UseCases\Notices\CancelScheduledNotice;
+use App\UseCases\Notices\CountRecipients;
 use App\UseCases\Notices\ListMyNotices;
 use App\UseCases\Notices\ListScheduledNotices;
-use App\UseCases\Notices\ResolveRecipients;
 use App\UseCases\Notices\SendNotice;
 use App\UseCases\Notices\ShowNotice;
 use App\UseCases\Notices\UpdateScheduledNotice;
@@ -25,11 +26,15 @@ use Illuminate\Support\Facades\Gate;
  */
 final class NoticeController extends Controller
 {
-    public function index(Request $request, Team $team, ListMyNotices $list): JsonResponse
+    public function index(ListNoticesRequest $request, Team $team, ListMyNotices $list): JsonResponse
     {
         Gate::authorize('viewNotices', $team);
+        $result = $list($this->actor($request), $team, $request->before());
 
-        return new JsonResponse(['notices' => NoticeResource::collection($list($this->actor($request), $team))->resolve()]);
+        return new JsonResponse([
+            'notices' => NoticeResource::collection($result['notices'])->resolve(),
+            'next_before' => $result['next_before'],
+        ]);
     }
 
     public function show(Request $request, Team $team, int $notice, ShowNotice $show): JsonResponse
@@ -39,9 +44,9 @@ final class NoticeController extends Controller
         return new JsonResponse(['notice' => (new NoticeResource($show($this->actor($request), $team, $notice)))->resolve()]);
     }
 
-    public function count(RecipientCountRequest $request, Team $team, ResolveRecipients $resolve): JsonResponse
+    public function count(RecipientCountRequest $request, Team $team, CountRecipients $count): JsonResponse
     {
-        return new JsonResponse(['count' => count($resolve($team, $request->audience(), $this->actor($request)->id))]);
+        return new JsonResponse(['count' => $count($this->actor($request), $team, $request->audience(), $request->noticeId())]);
     }
 
     public function store(NoticeRequest $request, Team $team, SendNotice $send): JsonResponse

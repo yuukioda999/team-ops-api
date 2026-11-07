@@ -24,7 +24,11 @@ final class RecipientCountRequest extends FormRequest
      */
     public function rules(): array
     {
-        return AudienceRules::rules('required');
+        return [
+            ...AudienceRules::rules('required'),
+            // 予約の編集のときは、そのお知らせの作成者を送信者として数える
+            'notice_id' => ['nullable', 'integer', 'min:1', 'max:999999999999999999'],
+        ];
     }
 
     public function withValidator(Validator $validator): void
@@ -38,6 +42,13 @@ final class RecipientCountRequest extends FormRequest
     public function attributes(): array
     {
         return ['target' => '宛先', 'target.type' => '宛先', 'target.values' => '宛先'];
+    }
+
+    public function noticeId(): ?int
+    {
+        $id = $this->validated('notice_id');
+
+        return $id === null ? null : (int) $id;
     }
 
     public function audience(): NoticeAudience

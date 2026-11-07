@@ -27,6 +27,8 @@ final readonly class PermissionContext
         public int $ownScheduledNoticeId,
         /** 操作する人が宛先の、公開済みのお知らせ */
         public int $receivedNoticeId,
+        /** ほかの人(役員)が作った予約中のお知らせ */
+        public int $othersScheduledNoticeId,
     ) {}
 
     public function url(string $path): string

@@ -17,8 +17,11 @@ use Illuminate\Validation\Validator;
  */
 final class NoticeRequest extends FormRequest
 {
-    /** 本文に使えない制御文字(改行・タブは使える) */
-    private const string BODY_FORBIDDEN = '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u';
+    /**
+     * 本文に使えない文字:制御文字(改行・タブは使える)と、文字の向きを変える書式文字・ゼロ幅文字(Cf)。
+     * 絵文字をつなぐ U+200D(ZWJ)だけは使える(ADR-0017)
+     */
+    private const string BODY_FORBIDDEN = '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]|(?!\x{200D})\p{Cf}/u';
 
     public function authorize(): bool
     {
@@ -70,7 +73,7 @@ final class NoticeRequest extends FormRequest
             (string) $this->validated('title'),
             (string) $this->validated('body'),
             $this->audience(),
-            is_string($scheduled) ? Carbon::parse($scheduled) : null,
+            is_string($scheduled) ? Carbon::parse($scheduled)->utc() : null, // 時差付きで受け取り、UTC に直して保存する
         );
     }
 
@@ -93,7 +96,7 @@ final class NoticeRequest extends FormRequest
             $changes['audience'] = $this->audience();
         }
         if (is_string($validated['scheduled_at'] ?? null)) {
-            $changes['scheduled_at'] = Carbon::parse($validated['scheduled_at']);
+            $changes['scheduled_at'] = Carbon::parse($validated['scheduled_at'])->utc();
         }
 
         return $changes;

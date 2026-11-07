@@ -42,11 +42,15 @@ class SendNoticeTest extends NoticeTestCase
 
     public function test_AC_005_01_title_and_body_limits(): void
     {
-        foreach ([['title' => ''], ['title' => str_repeat('あ', 101)], ['title' => "改行\nあり"], ['body' => ''], ['body' => str_repeat('あ', 2001)], ['body' => "制御\x07文字"]] as $invalid) {
+        foreach ([['title' => ''], ['title' => str_repeat('あ', 101)], ['title' => "改行\nあり"], ['body' => ''], ['body' => str_repeat('あ', 2001)], ['body' => "制御\x07文字"],
+            // 文字の向きを変える書式文字・ゼロ幅文字(ADR-0017)
+            ['body' => "向き\u{202E}を変える"], ['body' => "見えない\u{200B}空白"], ['body' => "途中\u{FEFF}の文字"], ['title' => "件名\u{2066}隔離"]] as $invalid) {
             $this->actingAs($this->representative)->postJson($this->url(), $this->input($invalid))->assertUnprocessable()->assertJsonValidationErrors(array_keys($invalid));
         }
         $this->actingAs($this->representative)->postJson($this->url(), $this->input(['title' => str_repeat('あ', 100), 'body' => str_repeat("あ\n", 1000)]))->assertCreated();
-        $this->assertSame(1, Notice::count());
+        // 絵文字をつなぐ ZWJ は使える
+        $this->actingAs($this->representative)->postJson($this->url(), $this->input(['body' => "家族で応援 \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"]))->assertCreated();
+        $this->assertSame(2, Notice::count());
     }
 
     public function test_AC_005_01_target_rules(): void

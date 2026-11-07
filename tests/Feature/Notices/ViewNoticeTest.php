@@ -3,12 +3,15 @@
 namespace Tests\Feature\Notices;
 
 use App\Enums\Grade;
+use App\Enums\NoticeStatus;
+use App\Enums\NoticeTarget;
 use App\Enums\TeamRole;
+use App\Models\Notice;
 use App\Models\NoticeRecipient;
 use App\Models\TeamMembership;
 
 /**
- * お知らせの閲覧(AC-005-14・15)。
+ * お知らせの閲覧(AC-005-14・15・19)。
  */
 class ViewNoticeTest extends NoticeTestCase
 {
@@ -55,5 +58,32 @@ class ViewNoticeTest extends NoticeTestCase
         $this->actingAs($parent)->getJson($this->url("/{$id}"))->assertNotFound();
         // 006 の母数のため、送信時点の宛先は残る(ADR-0017)
         $this->assertSame(2, NoticeRecipient::where('notice_id', $id)->count());
+    }
+
+    public function test_AC_005_19_older_notices_are_returned_50_at_a_time(): void
+    {
+        $parent = $this->member([TeamRole::Parent], '保護者');
+        // 公開日時が同じものを含めて55件(1分おきに5件ずつ)
+        $base = now()->subDay();
+        for ($i = 0; $i < 55; $i++) {
+            $notice = Notice::create(['team_id' => $this->team->id, 'author_user_id' => $this->representative->id, 'title' => "連絡{$i}", 'body' => '本文', 'target_type' => NoticeTarget::All, 'target_values' => [], 'status' => NoticeStatus::Published, 'published_at' => $base->copy()->addMinutes(intdiv($i, 5)), 'recipient_count' => 1]);
+            $notice->recipients()->create(['user_id' => $parent->id]);
+        }
+
+        $first = $this->actingAs($parent)->getJson($this->url())->assertOk();
+        $this->assertCount(50, (array) $first->json('notices'));
+        $this->assertSame('連絡54', $first->json('notices.0.title'));
+        $next = $first->json('next_before');
+        $this->assertIsInt($next);
+
+        $second = $this->actingAs($parent)->getJson($this->url("?before={$next}"))->assertOk()->assertJsonPath('next_before', null);
+        $all = [...array_column((array) $first->json('notices'), 'title'), ...array_column((array) $second->json('notices'), 'title')];
+        // 重なりも抜けもなく、新しい順
+        $this->assertSame(array_map(fn (int $i) => "連絡{$i}", range(54, 0)), $all);
+
+        // 自分宛てでないお知らせを起点にしても、続きは見えない
+        $other = Notice::create(['team_id' => $this->team->id, 'author_user_id' => $this->representative->id, 'title' => '別', 'body' => '本文', 'target_type' => NoticeTarget::All, 'target_values' => [], 'status' => NoticeStatus::Published, 'published_at' => now(), 'recipient_count' => 0]);
+        $this->actingAs($parent)->getJson($this->url("?before={$other->id}"))->assertOk()->assertJsonPath('notices', [])->assertJsonPath('next_before', null);
+        $this->actingAs($parent)->getJson($this->url('?before=abc'))->assertUnprocessable();
     }
 }
