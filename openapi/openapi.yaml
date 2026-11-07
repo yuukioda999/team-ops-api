@@ -36,6 +36,8 @@ tags:
     description: 名簿と保護者の紐づけ(003)
   - name: members
     description: メンバーの管理と監査ログ(004)
+  - name: notices
+    description: お知らせ(005)
 
 paths:
   /api/sanctum/csrf-cookie:
@@ -486,6 +488,195 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/notices:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [notices]
+      operationId: listNotices
+      summary: 自分宛てのお知らせ
+      description: 自分が宛先に含まれる公開済みのお知らせを、新しい順に50件まで返します(AC-005-14)。
+      responses:
+        '200':
+          description: お知らせ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoticeList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [notices]
+      operationId: createNotice
+      summary: お知らせを送る(今すぐ、または予約)
+      description: |
+        代表・役員・コーチだけ(AC-005-01・04)。`scheduled_at` がなければ今すぐ公開し、宛先にメールを送り始めます。
+        `scheduled_at` があれば、その日時まで公開しません(5分後〜30日後、AC-005-09・13)。
+        宛先は公開の時点の名簿で決め、送信者本人も含みます(AC-005-03・12)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoticeInput'
+      responses:
+        '201':
+          description: 作った
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoticeEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/notices/recipient-count:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    post:
+      tags: [notices]
+      operationId: countNoticeRecipients
+      summary: 届く人数
+      description: 代表・役員・コーチだけ。宛先の指定から、実際に届く人数(送信者本人を含む、重複なし)を返します(AC-005-02)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target]
+              properties:
+                target:
+                  $ref: '#/components/schemas/NoticeTargetInput'
+      responses:
+        '200':
+          description: 人数
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [count]
+                properties:
+                  count:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/notices/scheduled:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [notices]
+      operationId: listScheduledNotices
+      summary: 予約中のお知らせ
+      description: 代表・役員はチームのすべて、コーチは自分が作ったものだけ(ADR-0017)。予約日時の順。
+      responses:
+        '200':
+          description: 予約中のお知らせ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoticeList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/teams/{team}/notices/{notice}:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/NoticeId'
+    get:
+      tags: [notices]
+      operationId: getNotice
+      summary: お知らせ1件
+      description: 自分が宛先に含まれる公開済みのお知らせだけ。それ以外は存在しない場合と同じ404です(AC-005-15)。
+      responses:
+        '200':
+          description: お知らせ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoticeEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [notices]
+      operationId: updateScheduledNotice
+      summary: 予約中のお知らせを編集する
+      description: |
+        作成者、または代表・役員だけ(AC-005-10)。送った項目だけを変えます。
+        送信済み・取り消し済みは 409 で、`errors.notice` に理由が入ります(AC-005-06)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoticeChanges'
+      responses:
+        '200':
+          description: 編集した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoticeEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/NoticeNotScheduled'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+    delete:
+      tags: [notices]
+      operationId: cancelScheduledNotice
+      summary: 予約を取り消す
+      description: 作成者、または代表・役員だけ。何も送られません(AC-005-10)。送信済みは 409 です。
+      responses:
+        '204':
+          description: 取り消した
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/NoticeNotScheduled'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
 
   /api/teams/{team}/invitation:
     parameters:
@@ -1045,6 +1236,13 @@ components:
       description: チームのメンバーのID
       schema:
         type: integer
+    NoticeId:
+      name: notice
+      in: path
+      required: true
+      description: お知らせのID
+      schema:
+        type: integer
     PlayerId:
       name: player
       in: path
@@ -1139,6 +1337,117 @@ components:
           description: 前後の空白(全角を含む)は取り除く。改行などの制御文字は使えない
         sport:
           $ref: '#/components/schemas/Sport'
+
+    NoticeTargetInput:
+      type: object
+      required: [type, values]
+      description: 全員なら values は空。学年・役割なら1つ以上。学年と役割は同時に指定できない
+      properties:
+        type:
+          type: string
+          enum: [all, grades, roles]
+        values:
+          type: array
+          maxItems: 10
+          uniqueItems: true
+          items:
+            type: string
+            description: 学年(preschool, e1〜e6, j1〜j3)または役割(representative, officer, coach, parent)
+
+    NoticeInput:
+      type: object
+      required: [title, body, target]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: 1行。前後の空白は取り除く
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: 改行できる。HTML として解釈しない
+        target:
+          $ref: '#/components/schemas/NoticeTargetInput'
+        scheduled_at:
+          type: [string, 'null']
+          format: date-time
+          description: 予約日時(時差付き)。null または省略なら今すぐ送信
+
+    NoticeChanges:
+      type: object
+      description: 送った項目だけを変える
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        target:
+          $ref: '#/components/schemas/NoticeTargetInput'
+        scheduled_at:
+          type: string
+          format: date-time
+
+    Notice:
+      type: object
+      additionalProperties: false
+      required: [id, title, body, target, status, scheduled_at, published_at, recipient_count, author_display_name]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        body:
+          type: string
+        target:
+          type: object
+          additionalProperties: false
+          required: [type, values]
+          properties:
+            type:
+              type: string
+              enum: [all, grades, roles]
+            values:
+              type: array
+              items:
+                type: string
+        status:
+          type: string
+          enum: [scheduled, published, cancelled]
+        scheduled_at:
+          type: [string, 'null']
+          format: date-time
+        published_at:
+          type: [string, 'null']
+          format: date-time
+        recipient_count:
+          type: integer
+          description: 公開の時点で届いた人数(予約中は0)
+        author_display_name:
+          type: [string, 'null']
+
+    NoticeEnvelope:
+      type: object
+      additionalProperties: false
+      required: [notice]
+      properties:
+        notice:
+          $ref: '#/components/schemas/Notice'
+
+    NoticeList:
+      type: object
+      additionalProperties: false
+      required: [notices]
+      properties:
+        notices:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notice'
 
     UpdateTeamInput:
       type: object
@@ -1284,7 +1593,7 @@ components:
           type: object
           additionalProperties: false
           description: 画面の出し分け用。判定は API の TeamPolicy と同じ
-          required: [manage_invitation, review_join_requests, manage_players, view_players, view_all_players, update_team, view_members, manage_roles, remove_members, view_audit_logs]
+          required: [manage_invitation, review_join_requests, manage_players, view_players, view_all_players, update_team, view_members, manage_roles, remove_members, view_audit_logs, create_notices, manage_all_notices]
           properties:
             manage_invitation:
               type: boolean
@@ -1308,6 +1617,12 @@ components:
             view_audit_logs:
               type: boolean
               description: 監査ログを見られる(代表)
+            create_notices:
+              type: boolean
+              description: お知らせを作成・送信・予約できる(代表・役員・コーチ)
+            manage_all_notices:
+              type: boolean
+              description: チームのすべての予約中のお知らせを編集・取り消しできる(代表・役員)。false なら自分が作ったものだけ
             view_players:
               type: boolean
               description: 名簿を開ける(代表・役員・コーチ・保護者)
@@ -1609,6 +1924,12 @@ components:
             $ref: '#/components/schemas/CsvProblem'
 
   responses:
+    NoticeNotScheduled:
+      description: 送信済み・取り消し済みのお知らせは編集・取り消しできない(AC-005-06)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
     Unauthenticated:
       description: ログインしていない、またはセッションが切れた(AC-000-02、AC-001-07)
       content:
