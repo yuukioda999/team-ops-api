@@ -33,7 +33,7 @@ final class PublishNotice
 
         $now = now();
         foreach (array_chunk($userIds, 500) as $chunk) {
-            NoticeRecipient::insert(array_map(fn (int $id) => ['notice_id' => $notice->id, 'user_id' => $id, 'delivery_status' => 'pending', 'delivery_status_at' => $now, 'created_at' => $now, 'updated_at' => $now], $chunk));
+            NoticeRecipient::insert(array_map(fn (int $id) => ['notice_id' => $notice->id, 'user_id' => $id, 'delivery_status' => 'pending', 'created_at' => $now, 'updated_at' => $now], $chunk));
         }
 
         ($this->mail)($team, $notice, $userIds, null, $now);

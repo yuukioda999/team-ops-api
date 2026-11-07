@@ -9,7 +9,7 @@ namespace App\Support\NotifyRelay;
  */
 final class NoticeDeliveryKey
 {
-    private const string PATTERN = '/^team:([0-9A-Za-z]{1,26}):notice:([0-9]{1,18}):(?:reminder:[1-9]:)?part:[0-9]{1,6}$/';
+    private const string PATTERN = '/^team:([0-9A-Za-z]{1,26}):notice:([0-9]{1,18}):(?:reminder:([1-9]):)?part:[0-9]{1,6}$/';
 
     public static function publish(string $teamId, int $noticeId, int $part): string
     {
@@ -22,7 +22,7 @@ final class NoticeDeliveryKey
     }
 
     /**
-     * @return array{team_id: string, notice_id: int}|null お知らせのキーでなければ null
+     * @return array{team_id: string, notice_id: int, round: int}|null お知らせのキーでなければ null。round は 0 が最初の送信、1〜3 が再通知
      */
     public static function parse(string $key): ?array
     {
@@ -30,7 +30,7 @@ final class NoticeDeliveryKey
             return null;
         }
 
-        return ['team_id' => $m[1], 'notice_id' => (int) $m[2]];
+        return ['team_id' => $m[1], 'notice_id' => (int) $m[2], 'round' => (int) ($m[3] ?? 0)];
     }
 
     /**

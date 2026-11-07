@@ -14,13 +14,14 @@ use Illuminate\Support\Facades\DB;
 /**
  * notify-relay の webhook を1件処理する(AC-006-08、ADR-0019)。
  * 同じ event_id は2回処理しない。お知らせのメールなら、宛先の行の配信状態を更新する。
- * 行にある状態より古い結果は採らない(到着順は保証されないため)。
+ * 宛先の行が今いる送信(最初の送信か、何回目の再通知か)の結果だけを採り、前の送信の結果は捨てる。
+ * 同じ送信の結果どうしは、結果の発生日時で前後を決める(到着順は保証されないため)。
  * アドレスが原因の失敗なら、そのユーザーに「メールが届かなかった日時」を入れる(ADR-0020)。
  */
 final class ReceiveRelayEvent
 {
     /**
-     * @param  array{event_id: string, type: string, delivery_id: string, dedupe_key: string, results: list<array{recipient_ref: string, status: string, error_code: string|null, occurred_at: string}>}  $event
+     * @param  array{event_id: string, type: string, delivery_id: string, dedupe_key: string, results: list<array{recipient_ref: string, status: string, error_code: string|null, occurred_at: string}>, finished: int}  $event
      */
     public function __invoke(array $event): void
     {
@@ -32,13 +33,16 @@ final class ReceiveRelayEvent
 
             $outbox = OutboxMessage::where('dedupe_key', $event['dedupe_key'])->lockForUpdate()->first();
             if ($outbox !== null) {
-                $changes = ['delivery_id' => $outbox->delivery_id ?? $event['delivery_id']];
+                $outbox->delivery_id ??= $event['delivery_id'];
                 if ($event['type'] === 'delivery.completed') {
-                    $changes['relay_completed_at'] = $now;
+                    // 結果がすべて届いているときだけ完了とする。足りなければ照合の対象に残す(AC-006-09)
+                    if ($event['finished'] === $outbox->results_received) {
+                        $outbox->relay_completed_at = $now;
+                    }
                 } else {
-                    $changes['results_received'] = $outbox->results_received + count($event['results']);
+                    $outbox->results_received += count($event['results']);
                 }
-                $outbox->forceFill($changes)->save();
+                $outbox->save();
             }
 
             $key = NoticeDeliveryKey::parse($event['dedupe_key']);
@@ -50,7 +54,7 @@ final class ReceiveRelayEvent
                 return;
             }
             foreach ($event['results'] as $result) {
-                $this->apply($notice, $result);
+                $this->apply($notice, $key['round'], $outbox?->created_at, $result);
             }
         });
     }
@@ -58,7 +62,7 @@ final class ReceiveRelayEvent
     /**
      * @param  array{recipient_ref: string, status: string, error_code: string|null, occurred_at: string}  $result
      */
-    private function apply(Notice $notice, array $result): void
+    private function apply(Notice $notice, int $round, ?Carbon $addressTakenAt, array $result): void
     {
         $userId = NoticeDeliveryKey::userId($result['recipient_ref']);
         if ($userId === null) {
@@ -66,8 +70,9 @@ final class ReceiveRelayEvent
         }
         $occurredAt = Carbon::parse($result['occurred_at'])->utc();
         $status = DeliveryStatus::from($result['status']);
-        NoticeRecipient::where('notice_id', $notice->id)
+        $updated = NoticeRecipient::where('notice_id', $notice->id)
             ->where('user_id', $userId)
+            ->where('delivery_round', $round)
             ->where(fn ($q) => $q->whereNull('delivery_status_at')->orWhere('delivery_status_at', '<=', $occurredAt))
             ->update([
                 'delivery_status' => $status,
@@ -76,11 +81,12 @@ final class ReceiveRelayEvent
                 'updated_at' => now(),
             ]);
 
-        if ($status === DeliveryStatus::Failed && $result['error_code'] === 'invalid_address') {
-            // 古いアドレスの結果で、変更後の新しいアドレスを止めない
+        // 採った結果で、アドレスがその依頼を作った後に変わっていなければ印を付ける。
+        // 送信が遅れて、変更前のアドレス宛ての失敗が変更後に届いても、新しいアドレスを止めない(ADR-0020)
+        if ($updated > 0 && $addressTakenAt !== null && $status === DeliveryStatus::Failed && $result['error_code'] === 'invalid_address') {
             User::whereKey($userId)
                 ->whereNull('email_undeliverable_at')
-                ->where(fn ($q) => $q->whereNull('email_changed_at')->orWhere('email_changed_at', '<', $occurredAt))
+                ->where(fn ($q) => $q->whereNull('email_changed_at')->orWhere('email_changed_at', '<', $addressTakenAt))
                 ->update(['email_undeliverable_at' => $occurredAt]);
         }
     }

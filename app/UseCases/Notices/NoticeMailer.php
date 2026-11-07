@@ -62,25 +62,28 @@ final class NoticeMailer
                 tenantRef: "team:{$team->id}",
             );
             $sentIds = array_map(fn (string $ref) => (int) substr($ref, 5), array_keys($recipients));
-            $this->mark($notice, $sentIds, DeliveryStatus::Pending, null, $now);
+            $this->mark($notice, $sentIds, DeliveryStatus::Pending, null, $reminder ?? 0, $now);
             $sent += count($sentIds);
         }
-        $this->mark($notice, $excluded['undeliverable'], DeliveryStatus::Skipped, NoticeRecipient::SKIPPED_UNDELIVERABLE, $now);
-        $this->mark($notice, $excluded['restricted'], DeliveryStatus::Skipped, NoticeRecipient::SKIPPED_RESTRICTED, $now);
+        $this->mark($notice, $excluded['undeliverable'], DeliveryStatus::Skipped, NoticeRecipient::SKIPPED_UNDELIVERABLE, $reminder ?? 0, $now);
+        $this->mark($notice, $excluded['restricted'], DeliveryStatus::Skipped, NoticeRecipient::SKIPPED_RESTRICTED, $reminder ?? 0, $now);
 
         return ['sent' => $sent, 'excluded' => count($excluded['undeliverable']) + count($excluded['restricted'])];
     }
 
     /**
+     * 宛先の行を、この送信(round)の状態にする。前の送信の結果はこのあと採らない(ADR-0019)。
+     *
      * @param  list<int>  $userIds
      */
-    private function mark(Notice $notice, array $userIds, DeliveryStatus $status, ?string $error, Carbon $now): void
+    private function mark(Notice $notice, array $userIds, DeliveryStatus $status, ?string $error, int $round, Carbon $now): void
     {
         foreach (array_chunk($userIds, 500) as $chunk) {
             NoticeRecipient::where('notice_id', $notice->id)->whereIn('user_id', $chunk)->update([
                 'delivery_status' => $status,
                 'delivery_error' => $error,
-                'delivery_status_at' => $now,
+                'delivery_round' => $round,
+                'delivery_status_at' => null,
                 'updated_at' => $now,
             ]);
         }

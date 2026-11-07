@@ -743,7 +743,7 @@ paths:
       tags: [notices]
       operationId: listUnreadNoticeRecipients
       summary: 未読の人
-      description: 代表・役員、または作成者のコーチだけ(AC-006-05)。表示名の順に並べます。チームを抜けた人は `member` が false です。
+      description: 代表・役員、または作成者のコーチだけ(AC-006-05)。今もチームにいる人を表示名の順に返します。チームを抜けた人は `former_members` に人数だけ返します。
       responses:
         '200':
           description: 未読の人
@@ -752,12 +752,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [members]
+                required: [members, former_members]
                 properties:
                   members:
                     type: array
                     items:
                       $ref: '#/components/schemas/NoticeRecipientName'
+                  former_members:
+                    type: integer
+                    description: チームを抜けた人の人数(表示名は返さない)
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -785,12 +788,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [members]
+                required: [members, former_members]
                 properties:
                   members:
                     type: array
                     items:
                       $ref: '#/components/schemas/NoticeFailedRecipient'
+                  former_members:
+                    type: integer
+                    description: チームを抜けた人の人数(表示名は返さない)
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -1310,8 +1316,26 @@ paths:
       responses:
         '204':
           description: 受け取った(重複していた場合も)
+        '400':
+          description: 時刻がないか、5分を超えてずれている(notify-relay は送り直す)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '413':
+          description: 本文が1MBを超える
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '503':
+          description: 受け取る側の鍵が設定されていない(notify-relay は送り直す)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
         '401':
-          description: 署名・鍵ID・時刻が正しくない
+          description: 鍵IDか署名が正しくない(notify-relay は送り直さず、鍵の設定ミスとしてアラートを出す)
           content:
             application/json:
               schema:
@@ -1638,7 +1662,7 @@ components:
     NoticeDeliveryStatus:
       type: object
       additionalProperties: false
-      required: [title, state, recipients, read, unread, delivered, pending, failed, skipped, reminders]
+      required: [title, state, recipients, read, unread, unread_members, delivered, pending, failed, skipped, reminders]
       properties:
         title:
           type: string
@@ -1653,6 +1677,9 @@ components:
           type: integer
         unread:
           type: integer
+        unread_members:
+          type: integer
+          description: 未読のうち今もチームにいる人(再通知が届く人)
         delivered:
           type: integer
           description: 送信済み(受信側のサーバーが受け付けた)
@@ -1686,23 +1713,18 @@ components:
     NoticeRecipientName:
       type: object
       additionalProperties: false
-      required: [display_name, member]
+      required: [display_name]
       properties:
         display_name:
           type: [string, 'null']
-        member:
-          type: boolean
-          description: 今もチームにいるか
 
     NoticeFailedRecipient:
       type: object
       additionalProperties: false
-      required: [display_name, member, status, reason]
+      required: [display_name, status, reason]
       properties:
         display_name:
           type: [string, 'null']
-        member:
-          type: boolean
         status:
           type: string
           enum: [failed, skipped]
@@ -1745,6 +1767,13 @@ components:
                 format: date-time
         counts:
           type: object
+          properties:
+            delivered:
+              type: integer
+            failed:
+              type: integer
+            skipped:
+              type: integer
         completed_at:
           type: string
           format: date-time

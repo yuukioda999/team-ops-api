@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -15,7 +16,8 @@ return new class extends Migration
             $table->dateTime('read_at', 6)->nullable()->comment('初めてアプリで開いた日時(AC-006-01)');
             $table->string('delivery_status', 10)->default('pending')->comment('pending / delivered / failed / skipped');
             $table->string('delivery_error', 32)->nullable()->comment('notify-relay の error_code、または送らなかった理由');
-            $table->dateTime('delivery_status_at', 6)->nullable()->comment('状態の基準時刻。これより古い結果は採らない(ADR-0019)');
+            $table->unsignedTinyInteger('delivery_round')->default(0)->comment('いま有効な送信。0 が最初の送信、1〜3 が再通知の回数。前の送信の結果は採らない(ADR-0019)');
+            $table->dateTime('delivery_status_at', 6)->nullable()->comment('同じ送信の結果のうち、採った結果の発生日時(ADR-0019)');
             $table->index(['notice_id', 'read_at']);
             $table->index(['notice_id', 'delivery_status']);
         });
@@ -25,7 +27,13 @@ return new class extends Migration
             $table->unsignedInteger('results_received')->default(0)->comment('webhook で受け取った結果の数');
             $table->dateTime('relay_completed_at', 6)->nullable()->comment('delivery.completed を受け取った日時');
             $table->dateTime('reconcile_stopped_at', 6)->nullable()->comment('照合をやめた日時(完了・7日経過)');
+            $table->dateTime('last_reconciled_at', 6)->nullable()->comment('最後に照合した日時。古い順に照合する');
+            $table->string('last_mismatch', 40)->nullable()->comment('前回の食い違い。同じ食い違いは記録・警告し直さない');
         });
+
+        // 006 より前に送ったお知らせは、結果を受け取る仕組みがなかった。送信済みとして扱い、照合もしない(判断:2026-11-07 レビュー R2)
+        DB::table('notice_recipients')->update(['delivery_status' => 'delivered']);
+        DB::table('outbox_messages')->where('kind', 'notice')->update(['reconcile_stopped_at' => now()]);
 
         // 受け取った webhook のイベント。同じ event_id は2回処理しない(ADR-0019)
         Schema::create('relay_events', function (Blueprint $table) {
@@ -70,12 +78,12 @@ return new class extends Migration
         Schema::dropIfExists('relay_events');
         Schema::table('outbox_messages', function (Blueprint $table) {
             $table->dropIndex(['delivery_id']);
-            $table->dropColumn(['delivery_id', 'results_received', 'relay_completed_at', 'reconcile_stopped_at']);
+            $table->dropColumn(['delivery_id', 'results_received', 'relay_completed_at', 'reconcile_stopped_at', 'last_reconciled_at', 'last_mismatch']);
         });
         Schema::table('notice_recipients', function (Blueprint $table) {
             $table->dropIndex(['notice_id', 'read_at']);
             $table->dropIndex(['notice_id', 'delivery_status']);
-            $table->dropColumn(['read_at', 'delivery_status', 'delivery_error', 'delivery_status_at']);
+            $table->dropColumn(['read_at', 'delivery_status', 'delivery_error', 'delivery_round', 'delivery_status_at']);
         });
     }
 };

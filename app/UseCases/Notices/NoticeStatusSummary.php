@@ -20,7 +20,7 @@ final class NoticeStatusSummary
      * @return array{
      *     title: string,
      *     state: 'sending'|'done',
-     *     recipients: int, read: int, unread: int,
+     *     recipients: int, read: int, unread: int, unread_members: int,
      *     delivered: int, pending: int, failed: int, skipped: int,
      *     reminders: array{sent: int, max: int, available: bool, reason: 'interval'|'max'|'no_unread'|null, next_available_at: string|null}
      * }
@@ -49,6 +49,8 @@ final class NoticeStatusSummary
             'recipients' => $total,
             'read' => $read,
             'unread' => $total - $read,
+            // 未読のうち今もチームにいる人。再通知が届くのはこの人たち(チームを抜けた人はお知らせを開けない)
+            'unread_members' => count(self::unreadMemberIds($team, $notice)),
             'delivered' => $by['delivered'],
             'pending' => $by['pending'],
             'failed' => $by['failed'],

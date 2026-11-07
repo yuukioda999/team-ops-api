@@ -26,17 +26,21 @@ final class RelayEventRequest extends FormRequest
             'results.*.status' => ['required', 'string', Rule::in(['delivered', 'failed', 'skipped'])],
             'results.*.error_code' => ['nullable', 'string', 'max:32'],
             'results.*.occurred_at' => ['required', 'date'],
+            'counts' => ['required_if:type,delivery.completed', 'array'],
+            'counts.delivered' => ['required_with:counts', 'integer', 'min:0'],
+            'counts.failed' => ['required_with:counts', 'integer', 'min:0'],
+            'counts.skipped' => ['required_with:counts', 'integer', 'min:0'],
         ];
     }
 
     /**
      * 処理に使う形にそろえる。
      *
-     * @return array{event_id: string, type: string, delivery_id: string, dedupe_key: string, results: list<array{recipient_ref: string, status: string, error_code: string|null, occurred_at: string}>}
+     * @return array{event_id: string, type: string, delivery_id: string, dedupe_key: string, results: list<array{recipient_ref: string, status: string, error_code: string|null, occurred_at: string}>, finished: int}
      */
     public function event(): array
     {
-        /** @var array{event_id: string, type: string, delivery_id: string, dedupe_key: string, results?: list<array{recipient_ref: string, status: string, error_code?: string|null, occurred_at: string}>} $v */
+        /** @var array{event_id: string, type: string, delivery_id: string, dedupe_key: string, results?: list<array{recipient_ref: string, status: string, error_code?: string|null, occurred_at: string}>, counts?: array{delivered: int, failed: int, skipped: int}} $v */
         $v = $this->validated();
 
         return [
@@ -50,6 +54,8 @@ final class RelayEventRequest extends FormRequest
                 'error_code' => $r['error_code'] ?? null,
                 'occurred_at' => $r['occurred_at'],
             ], $v['results'] ?? []),
+            // 完了の通知の、最終状態になった宛先の数(受け取った結果の数と比べる)
+            'finished' => isset($v['counts']) ? (int) $v['counts']['delivered'] + (int) $v['counts']['failed'] + (int) $v['counts']['skipped'] : 0,
         ];
     }
 }

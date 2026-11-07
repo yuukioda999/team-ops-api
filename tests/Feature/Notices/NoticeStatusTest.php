@@ -2,12 +2,14 @@
 
 namespace Tests\Feature\Notices;
 
+use App\Enums\DeliveryStatus;
 use App\Enums\TeamRole;
 use App\Models\Notice;
 use App\Models\NoticeRecipient;
 use App\Models\NoticeReminder;
 use App\Models\TeamMembership;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 
 /**
  * 既読(AC-006-01・03)、配信状況(AC-006-04〜07・10)、再通知(AC-006-11〜15)。ADR-0019・0020。
@@ -70,12 +72,12 @@ class NoticeStatusTest extends NoticeTestCase
         $notice = $this->send();
 
         $this->assertSame('来週の試合', $this->deliveryStatus($notice)['title']);
-        $this->assertSame(['state' => 'sending', 'recipients' => 4, 'read' => 0, 'unread' => 4, 'delivered' => 0, 'pending' => 4, 'failed' => 0, 'skipped' => 0],
+        $this->assertSame(['state' => 'sending', 'recipients' => 4, 'read' => 0, 'unread' => 4, 'unread_members' => 4, 'delivered' => 0, 'pending' => 4, 'failed' => 0, 'skipped' => 0],
             array_diff_key($this->deliveryStatus($notice), ['reminders' => true, 'title' => true]));
 
         $this->results($this->key($notice), [$parentA->id => ['delivered'], $parentB->id => ['failed', 'invalid_address']])->assertNoContent();
         $this->actingAs($parentA)->getJson($this->url("/{$notice->id}"))->assertOk();
-        $this->assertSame(['state' => 'sending', 'recipients' => 4, 'read' => 1, 'unread' => 3, 'delivered' => 1, 'pending' => 2, 'failed' => 1, 'skipped' => 0],
+        $this->assertSame(['state' => 'sending', 'recipients' => 4, 'read' => 1, 'unread' => 3, 'unread_members' => 3, 'delivered' => 1, 'pending' => 2, 'failed' => 1, 'skipped' => 0],
             array_diff_key($this->deliveryStatus($notice), ['reminders' => true, 'title' => true]));
 
         $this->results($this->key($notice), [$coach->id => ['delivered'], $this->representative->id => ['skipped', 'expired']])->assertNoContent();
@@ -92,15 +94,18 @@ class NoticeStatusTest extends NoticeTestCase
         $this->results($this->key($notice), [$parentA->id => ['failed', 'invalid_address'], $parentB->id => ['failed', 'provider_rejected']])->assertNoContent();
         TeamMembership::where('team_id', $this->team->id)->where('user_id', $removed->id)->delete();
 
+        // チームを抜けた人は、表示名を出さず人数だけ
         $this->actingAs($this->representative)->getJson($this->url("/{$notice->id}/status/unread"))->assertOk()->assertExactJson(['members' => [
-            ['display_name' => 'あべ', 'member' => true],
-            ['display_name' => 'いとう', 'member' => true],
-            ['display_name' => 'うえだ', 'member' => false],
-        ]]);
+            ['display_name' => 'あべ'],
+            ['display_name' => 'いとう'],
+        ], 'former_members' => 1]);
         $this->actingAs($this->representative)->getJson($this->url("/{$notice->id}/status/failures"))->assertOk()->assertExactJson(['members' => [
-            ['display_name' => 'あべ', 'member' => true, 'status' => 'failed', 'reason' => 'invalid_address'],
-            ['display_name' => 'いとう', 'member' => true, 'status' => 'failed', 'reason' => 'provider_rejected'],
-        ]]);
+            ['display_name' => 'あべ', 'status' => 'failed', 'reason' => 'invalid_address'],
+            ['display_name' => 'いとう', 'status' => 'failed', 'reason' => 'provider_rejected'],
+        ], 'former_members' => 0]);
+        // 未読の数は宛先全体、再通知が届くのはチームにいる人
+        $this->assertSame(3, $this->deliveryStatus($notice)['unread']);
+        $this->assertSame(2, $this->deliveryStatus($notice)['unread_members']);
     }
 
     public function test_AC_006_04_the_notice_says_whether_it_is_mine(): void
@@ -162,10 +167,12 @@ class NoticeStatusTest extends NoticeTestCase
         $remind = fn () => $this->actingAs($this->representative)->postJson($this->url("/{$notice->id}/reminders"));
 
         $remind()->assertCreated();
+        $firstAt = now()->toImmutable();
         $this->travel(59)->minutes();
         $remind()->assertStatus(409)->assertJsonValidationErrors(['reminder']);
         $this->assertSame('interval', $this->deliveryStatus($notice)['reminders']['reason']);
-        $this->assertNotNull($this->deliveryStatus($notice)['reminders']['next_available_at']);
+        // 次に実行できるのは、前回の1時間後
+        $this->assertEquals($firstAt->addHour()->startOfSecond(), Carbon::parse((string) $this->deliveryStatus($notice)['reminders']['next_available_at']));
 
         $this->travel(2)->minutes();
         $remind()->assertCreated();
@@ -221,6 +228,10 @@ class NoticeStatusTest extends NoticeTestCase
         // 最初の送信の結果が、再通知のあとに届いた
         $this->results($this->key($notice), [$parent->id => ['failed', 'provider_unavailable']], $sentAt)->assertNoContent();
         $this->assertSame('pending', NoticeRecipient::where('notice_id', $notice->id)->where('user_id', $parent->id)->sole()->delivery_status->value);
+
+        // 最初の送信の結果が、再通知より新しい時刻で届いても採らない(時計の違いに左右されない)
+        $this->results($this->key($notice), [$parent->id => ['failed', 'provider_unavailable']], now()->addMinutes(30)->toIso8601String())->assertNoContent();
+        $this->assertSame(DeliveryStatus::Pending, NoticeRecipient::where('notice_id', $notice->id)->where('user_id', $parent->id)->first()?->delivery_status);
 
         $this->results($this->key($notice, 'reminder:1:part:1'), [$parent->id => ['delivered']])->assertNoContent();
         $this->assertSame('delivered', NoticeRecipient::where('notice_id', $notice->id)->where('user_id', $parent->id)->sole()->delivery_status->value);

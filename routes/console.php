@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\LoginToken;
+use App\Models\RelayEvent;
 use App\Models\TeamJoinRequest;
 use Illuminate\Support\Facades\Schedule;
 
@@ -20,3 +21,6 @@ Schedule::command('model:prune', ['--model' => [TeamJoinRequest::class]])->daily
 
 // 完了の通知が届いていないお知らせのメールを notify-relay と照合する(AC-006-09、ADR-0019)
 Schedule::command('notices:reconcile-deliveries')->hourly()->withoutOverlapping(30);
+
+// 受け取った webhook の event_id は8日で消す(ADR-0019)
+Schedule::command('model:prune', ['--model' => [RelayEvent::class]])->daily();

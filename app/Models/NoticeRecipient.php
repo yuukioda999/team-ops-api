@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $read_at
  * @property DeliveryStatus $delivery_status
  * @property string|null $delivery_error
+ * @property int $delivery_round 0 が最初の送信、1〜3 が再通知の回数
  * @property Carbon|null $delivery_status_at
  */
 #[Fillable(['notice_id', 'user_id'])]
@@ -37,6 +38,7 @@ class NoticeRecipient extends Model
             'read_at' => 'datetime',
             'delivery_status' => DeliveryStatus::class,
             'delivery_status_at' => 'datetime',
+            'delivery_round' => 'integer',
         ];
     }
 
