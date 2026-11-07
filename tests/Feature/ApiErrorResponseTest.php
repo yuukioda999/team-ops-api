@@ -57,6 +57,16 @@ class ApiErrorResponseTest extends TestCase
             ->assertExactJson(['message' => 'ログインしてください']);
     }
 
+    public function test_AC_000_02_opening_a_protected_api_without_accept_json_also_returns_401(): void
+    {
+        // ブラウザのアドレス欄から直接開いた場合など。ログイン画面への移動を作ろうとして500にならない
+        foreach (['/api/_test/protected', '/api/me', '/api/teams/01J0000000000000000000000A/players'] as $path) {
+            $this->get($path, ['Accept' => 'text/html'])
+                ->assertUnauthorized()
+                ->assertExactJson(['message' => 'ログインしてください']);
+        }
+    }
+
     public function test_AC_000_02_a_bearer_token_is_not_accepted_and_returns_401(): void
     {
         $this->withHeader('Authorization', 'Bearer some-token')

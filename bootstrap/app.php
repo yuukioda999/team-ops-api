@@ -18,6 +18,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Web と同じオリジンからの API 呼び出しを Cookie のセッションで認証する(ADR-0008)
         $middleware->statefulApi();
 
+        // API 専用なので、未ログインをログイン画面へ移動させない。Accept を付けずに開いても 401 の JSON にする(AC-000-02)
+        $middleware->redirectGuestsTo(fn () => null);
+
         // 本番やデモで TRUSTED_PROXIES を設定し忘れたまま、リクエストを処理しない(AC-001-05)
         $middleware->prepend(RequireTrustedProxies::class);
     })
