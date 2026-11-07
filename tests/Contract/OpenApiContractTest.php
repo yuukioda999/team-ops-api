@@ -2,9 +2,14 @@
 
 namespace Tests\Contract;
 
+use App\Enums\Grade;
+use App\Enums\TeamRole;
 use App\Models\OutboxMessage;
+use App\Models\Player;
 use App\Models\Team;
 use App\Models\User;
+use Database\Factories\TeamFactory;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Illuminate\Testing\TestResponse;
@@ -141,6 +146,61 @@ class OpenApiContractTest extends AuthTestCase
         $this->check('DELETE', '/api/teams/{team}/invitation', $this->deleteJson("/api/teams/{$teamId}/invitation"));
         $this->check('GET', '/api/teams/{team}/join-requests', $this->getJson("/api/teams/{$teamId}/join-requests"));
         $this->check('POST', '/api/teams/{team}/join-requests/{joinRequest}/reject', $this->postJson("/api/teams/{$teamId}/join-requests/{$requestId}/reject"));
+    }
+
+    public function test_player_responses_match_the_contract(): void
+    {
+        $this->logIn('rep@example.invalid');
+        $teamId = (string) $this->postJson('/api/teams', ['name' => 'つくばFC', 'sport' => 'soccer'])->json('id');
+        $team = Team::findOrFail($teamId);
+        $parent = User::factory()->create(['display_name' => '山田 母']);
+        $membership = TeamFactory::addMember($team, $parent, [TeamRole::Parent]);
+        $base = "/api/teams/{$teamId}";
+
+        $this->check('GET', '/api/teams/{team}', $this->getJson($base));
+        $created = $this->postJson("{$base}/players", ['display_name' => '山田 太郎', 'grade' => 'e3', 'number' => 10]);
+        $this->check('POST', '/api/teams/{team}/players', $created);
+        $this->check('POST', '/api/teams/{team}/players', $this->postJson("{$base}/players", ['display_name' => '山田 太郎', 'grade' => 'e3']));
+        $this->check('POST', '/api/teams/{team}/players', $this->postJson("{$base}/players", ['display_name' => '', 'grade' => 'e9']));
+        $id = (int) $created->json('player.id');
+
+        $this->check('GET', '/api/teams/{team}/guardian-candidates', $this->getJson("{$base}/guardian-candidates"));
+        $this->check('PUT', '/api/teams/{team}/players/{player}/guardians', $this->putJson("{$base}/players/{$id}/guardians", ['membership_ids' => [$membership->id]]));
+        $this->check('PUT', '/api/teams/{team}/players/{player}/guardians', $this->putJson("{$base}/players/{$id}/guardians", ['membership_ids' => [999999]]));
+        $this->check('GET', '/api/teams/{team}/players', $this->getJson("{$base}/players"));
+        $this->check('GET', '/api/teams/{team}/players', $this->getJson("{$base}/players?grade=e3&number=10"));
+        $this->check('GET', '/api/teams/{team}/players', $this->getJson("{$base}/players?grade=x"));
+        $this->check('GET', '/api/teams/{team}/players/{player}', $this->getJson("{$base}/players/{$id}"));
+        $this->check('GET', '/api/teams/{team}/players/{player}', $this->getJson("{$base}/players/999999"));
+        $this->check('PATCH', '/api/teams/{team}/players/{player}', $this->patchJson("{$base}/players/{$id}", ['number' => null]));
+        $this->check('PATCH', '/api/teams/{team}/players/{player}', $this->patchJson("{$base}/players/{$id}", ['grade' => 'e9']));
+
+        $this->check('GET', '/api/teams/{team}/players/import/template', $this->get("{$base}/players/import/template"));
+        $csv = "表示名,学年,背番号\n佐藤 次郎,小1,\n山田 太郎,小3,\n鈴木,小7,\n";
+        $this->check('POST', '/api/teams/{team}/players/import/preview', $this->post("{$base}/players/import/preview", ['file' => UploadedFile::fake()->createWithContent('p.csv', $csv)], ['Accept' => 'application/json']));
+        $this->check('POST', '/api/teams/{team}/players/import/preview', $this->post("{$base}/players/import/preview", ['file' => UploadedFile::fake()->createWithContent('p.csv', "名前\nA\n")], ['Accept' => 'application/json']));
+        $this->check('POST', '/api/teams/{team}/players/import', $this->post("{$base}/players/import", ['file' => UploadedFile::fake()->createWithContent('p.csv', $csv), 'file_hash' => hash('sha256', $csv)], ['Accept' => 'application/json']));
+        $good = "表示名,学年\n佐藤 次郎,小1\n";
+        $this->check('POST', '/api/teams/{team}/players/import', $this->post("{$base}/players/import", ['file' => UploadedFile::fake()->createWithContent('p.csv', $good), 'file_hash' => hash('sha256', $good)], ['Accept' => 'application/json']));
+        $this->check('DELETE', '/api/teams/{team}/players/{player}', $this->deleteJson("{$base}/players/{$id}"));
+        $this->check('DELETE', '/api/teams/{team}/players/{player}', $this->deleteJson("{$base}/players/{$id}"));
+
+        // 保護者は自分の子どもだけ。変更・取り込みは 403
+        $own = Player::create(['team_id' => $teamId, 'display_name' => '山田 花子', 'grade' => Grade::E1, 'number' => null]);
+        $own->guardians()->create(['membership_id' => $membership->id]);
+        $this->postJson('/api/auth/logout');
+        $this->actingAs($parent);
+        $this->check('GET', '/api/teams/{team}', $this->getJson($base));
+        $this->check('GET', '/api/teams/{team}/players', $this->getJson("{$base}/players"));
+        $this->check('GET', '/api/teams/{team}/players/{player}', $this->getJson("{$base}/players/{$own->id}"));
+        $this->check('POST', '/api/teams/{team}/players', $this->postJson("{$base}/players", ['display_name' => 'A', 'grade' => 'e1']));
+        $this->check('PATCH', '/api/teams/{team}/players/{player}', $this->patchJson("{$base}/players/{$own->id}", ['grade' => 'e2']));
+        $this->check('DELETE', '/api/teams/{team}/players/{player}', $this->deleteJson("{$base}/players/{$own->id}"));
+        $this->check('PUT', '/api/teams/{team}/players/{player}/guardians', $this->putJson("{$base}/players/{$own->id}/guardians", ['membership_ids' => []]));
+        $this->check('GET', '/api/teams/{team}/guardian-candidates', $this->getJson("{$base}/guardian-candidates"));
+        $this->check('GET', '/api/teams/{team}/players/import/template', $this->getJson("{$base}/players/import/template"));
+        $this->check('POST', '/api/teams/{team}/players/import/preview', $this->post("{$base}/players/import/preview", ['file' => UploadedFile::fake()->createWithContent('p.csv', $good)], ['Accept' => 'application/json']));
+        $this->check('POST', '/api/teams/{team}/players/import', $this->post("{$base}/players/import", ['file' => UploadedFile::fake()->createWithContent('p.csv', $good), 'file_hash' => hash('sha256', $good)], ['Accept' => 'application/json']));
     }
 
     public function test_rate_limited_token_endpoints_match_the_contract(): void
