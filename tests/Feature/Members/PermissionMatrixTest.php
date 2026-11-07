@@ -2,8 +2,12 @@
 
 namespace Tests\Feature\Members;
 
+use App\Enums\Grade;
+use App\Enums\JoinRequestStatus;
 use App\Enums\TeamRole;
+use App\Models\Player;
 use App\Models\Team;
+use App\Models\TeamJoinRequest;
 use App\Models\TeamMembership;
 use App\Models\User;
 use App\Policies\TeamPolicy;
@@ -17,7 +21,8 @@ use Tests\Support\PermissionMatrix;
 use Tests\TestCase;
 
 /**
- * AC-004-01・02:権限表のすべての操作 × すべての役割(と役割の組み合わせ)で API を呼ぶ(ADR-0016)。
+ * AC-004-01:権限表のすべての操作 × すべての役割(と役割の組み合わせ)で API を呼ぶ(ADR-0016)。
+ * AC-004-02(コーチ兼保護者のお知らせの作成)は、005 でお知らせの行を足すときに確かめる。
  */
 class PermissionMatrixTest extends TestCase
 {
@@ -30,7 +35,7 @@ class PermissionMatrixTest extends TestCase
     {
         $roleSets = [
             ['representative'], ['officer'], ['coach'], ['parent'],
-            // 役割の和(AC-004-02)
+            // 役割の和(持っている役割のどれかが○なら成功)
             ['coach', 'parent'], ['officer', 'parent'], ['officer', 'coach'], ['representative', 'parent'],
         ];
         foreach (array_keys(PermissionMatrix::operations()) as $operation) {
@@ -44,7 +49,7 @@ class PermissionMatrixTest extends TestCase
      * @param  list<string>  $roleValues
      */
     #[DataProvider('cases')]
-    public function test_AC_004_01_AC_004_02_only_the_marked_roles_can_do_each_operation(string $operation, array $roleValues): void
+    public function test_AC_004_01_only_the_marked_roles_can_do_each_operation(string $operation, array $roleValues): void
     {
         $roles = array_map(fn (string $v) => TeamRole::from($v), $roleValues);
         $spec = PermissionMatrix::operations()[$operation];
@@ -53,6 +58,12 @@ class PermissionMatrixTest extends TestCase
         $team = Team::factory()->withRepresentative()->create(['created_by' => $representative->id]);
         $target = TeamFactory::addMember($team, User::factory()->create(['display_name' => '相手']), [TeamRole::Parent]);
         $nextRepresentative = TeamFactory::addMember($team, User::factory()->create(['display_name' => '次の代表']), [TeamRole::Officer]);
+        $player = Player::create(['team_id' => $team->id, 'display_name' => '紐づいていない選手', 'grade' => Grade::E1, 'number' => null]);
+        $joinRequestIds = array_map(function (string $name) use ($team): int {
+            $applicant = User::factory()->create(['display_name' => $name]);
+
+            return TeamJoinRequest::create(['team_id' => $team->id, 'user_id' => $applicant->id, 'status' => JoinRequestStatus::Pending, 'pending_user_id' => $applicant->id])->id;
+        }, ['申請者1', '申請者2']);
 
         if (in_array(TeamRole::Representative, $roles, true)) {
             $actor = $representative;
@@ -67,12 +78,14 @@ class PermissionMatrixTest extends TestCase
             : array_intersect($roleValues, array_map(fn (TeamRole $r) => $r->value, $spec['allowed'])) !== [];
 
         $this->actingAs($actor);
-        $response = ($spec['call'])(new PermissionContext($this, $team, $target->id, $nextRepresentative->id));
-
-        if ($allowed) {
-            isset($spec['ok']) ? ($spec['ok'])($response) : $this->assertTrue($response->isSuccessful(), "{$operation} を {$this->label($roleValues)} が行えなかった({$response->status()})");
-        } else {
-            isset($spec['denied']) ? ($spec['denied'])($response) : $response->assertForbidden();
+        $context = new PermissionContext($this, $team, $target->id, $nextRepresentative->id, $player->id, [$joinRequestIds[0], $joinRequestIds[1]]);
+        foreach ($spec['calls'] as $i => $step) {
+            $response = ($step['call'])($context);
+            if ($allowed) {
+                isset($step['ok']) ? ($step['ok'])($response) : $this->assertTrue($response->isSuccessful(), "{$operation} の{$i}番目の API を {$this->label($roleValues)} が行えなかった({$response->status()})");
+            } else {
+                isset($step['denied']) ? ($step['denied'])($response) : $response->assertForbidden();
+            }
         }
     }
 
@@ -87,10 +100,10 @@ class PermissionMatrixTest extends TestCase
         $this->assertEqualsCanonicalizing($methods, $abilities, 'TeamPolicy に判定を足したら、権限表(tests/Support/PermissionMatrix.php)にも足してください。');
     }
 
-    public function test_AC_004_01_the_matrix_covers_every_row_of_the_spec_table(): void
+    public function test_AC_004_01_the_matrix_has_exactly_the_rows_of_the_spec_table(): void
     {
-        // spec の権限表の行数(メンバー一覧の行を含む)。005・006 の行は、作るまで PENDING に置く
-        $this->assertCount(14, array_merge(array_keys(PermissionMatrix::operations()), PermissionMatrix::PENDING));
+        // 005・006 の行は、作るまで PENDING に置く
+        $this->assertEqualsCanonicalizing(PermissionMatrix::SPEC_ROWS, [...array_keys(PermissionMatrix::operations()), ...PermissionMatrix::PENDING]);
     }
 
     /**

@@ -17,11 +17,19 @@ final class MemberNotifier
 {
     public function __construct(private readonly EmailOutbox $outbox) {}
 
-    public function rolesChanged(Team $team, TeamMembership $member, AuditLog $log, string $kind = 'member_roles_changed'): void
+    public function rolesChanged(Team $team, TeamMembership $member, AuditLog $log): void
+    {
+        $this->send($team, $member, $log, 'member_roles_changed', '【チーム運営】役割が変更されました', "「{$team->name}」でのあなたの役割が変更されました。");
+    }
+
+    public function representativeTransferred(Team $team, TeamMembership $member, AuditLog $log): void
+    {
+        $this->send($team, $member, $log, 'representative_transferred', '【チーム運営】代表が交代しました', "「{$team->name}」の代表が交代しました。");
+    }
+
+    private function send(Team $team, TeamMembership $member, AuditLog $log, string $kind, string $subject, string $intro): void
     {
         $roles = implode('・', array_map(fn (TeamRole $r) => $r->label(), $member->roleList()));
-        $subject = $kind === 'representative_transferred' ? '【チーム運営】代表が交代しました' : '【チーム運営】役割が変更されました';
-        $intro = $kind === 'representative_transferred' ? "「{$team->name}」の代表が交代しました。" : "「{$team->name}」でのあなたの役割が変更されました。";
 
         $this->outbox->queue(
             kind: $kind,

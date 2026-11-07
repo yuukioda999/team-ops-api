@@ -8,6 +8,9 @@ use App\Models\Player;
 use App\Models\PlayerGuardian;
 use App\Models\TeamMemberRole;
 use App\Models\TeamMembership;
+use App\UseCases\Members\ChangeMemberRoles;
+use App\UseCases\Members\RemoveMember;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -106,6 +109,35 @@ class MemberTest extends MemberTestCase
         $this->assertSame(['representative'], $this->rolesOf($this->representative));
     }
 
+    public function test_AC_004_03_an_invalid_role_gets_the_standard_message(): void
+    {
+        $parent = $this->member([TeamRole::Parent]);
+
+        $this->actingAs($this->representative)->putJson($this->url("/members/{$this->membershipOf($parent)->id}/roles"), ['roles' => ['captain']])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors', ['roles.0' => ['役割の選択肢から選んでください。']]);
+    }
+
+    public function test_AC_004_10_a_role_change_is_authorized_again_after_locking(): void
+    {
+        // 代表の交代と同時に送られた変更を想定し、権限の判定(FormRequest)を通ったあとで代表でなくなった人として呼ぶ
+        $officer = $this->member([TeamRole::Officer]);
+        $parent = $this->member([TeamRole::Parent]);
+
+        foreach ([
+            fn () => app(ChangeMemberRoles::class)($officer, $this->team, $this->membershipOf($parent)->id, [TeamRole::Coach]),
+            fn () => app(RemoveMember::class)($this->member([TeamRole::Coach]), $this->team, $this->membershipOf($parent)->id),
+        ] as $call) {
+            try {
+                $call();
+                $this->fail('権限のない人の操作が通った');
+            } catch (AuthorizationException) {
+                // 期待どおり
+            }
+        }
+        $this->assertSame(['parent'], $this->rolesOf($parent));
+    }
+
     public function test_AC_004_09_a_member_cannot_be_left_without_roles(): void
     {
         $parent = $this->member([TeamRole::Parent]);
@@ -128,7 +160,7 @@ class MemberTest extends MemberTestCase
         $this->actingAs($officer)->getJson($this->url())->assertJsonPath('roles', ['parent'])->assertJsonPath('permissions.view_members', false);
     }
 
-    public function test_removing_the_parent_role_also_unlinks_the_member_from_players(): void
+    public function test_AC_004_13_removing_the_parent_role_also_unlinks_the_member_from_players(): void
     {
         $member = $this->member([TeamRole::Parent, TeamRole::Coach]);
         $membership = $this->membershipOf($member);

@@ -3,9 +3,11 @@
 namespace Tests\Tenancy;
 
 use App\Enums\TeamRole;
+use App\Models\AuditLog;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\User;
+use App\Support\Audit\Audit;
 use Database\Factories\TeamFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -48,6 +50,17 @@ class MemberIsolationTest extends TestCase
         $this->actingAs($outsider)->patchJson($base, ['name' => '乗っ取り'])->assertNotFound();
         $this->actingAs($outsider)->getJson("{$base}/audit-logs")->assertNotFound();
         $this->assertNotSame('乗っ取り', $team->fresh()?->name);
+    }
+
+    public function test_AC_000_01_only_this_teams_audit_logs_are_shown(): void
+    {
+        $rep = User::factory()->create();
+        $mine = Team::factory()->withRepresentative()->create(['created_by' => $rep->id]);
+        $other = Team::factory()->withRepresentative()->create();
+        Audit::record($other, null, 'invitation.issued');
+
+        $this->actingAs($rep)->getJson("/api/teams/{$mine->id}/audit-logs")->assertOk()->assertJsonPath('logs', []);
+        $this->assertSame(1, AuditLog::count());
     }
 
     public function test_AC_000_01_members_of_other_teams_are_not_listed(): void

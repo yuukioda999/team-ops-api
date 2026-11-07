@@ -10,6 +10,7 @@ use App\Models\TeamMembership;
 use App\Models\User;
 use App\Support\Audit\Audit;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -29,11 +30,17 @@ final class ChangeMemberRoles
         $requested = array_values(array_filter(TeamRole::changeable(), fn (TeamRole $r) => in_array($r, $roles, true)));
 
         return DB::transaction(function () use ($actor, $team, $membershipId, $requested): TeamMembership {
+            // 代表の交代と同じ順(チーム → 操作した人 → 相手)でロックし、ロックのあとで権限を確かめ直す。
+            // 交代と同時に送られた変更が、もう代表でない人の操作として通らないようにする
+            Team::whereKey($team->id)->lockForUpdate()->first();
+            TeamMembership::where('team_id', $team->id)->where('user_id', $actor->id)->lockForUpdate()->first();
             $member = TeamMembership::where('team_id', $team->id)->lockForUpdate()->findOrFail($membershipId);
+            Gate::forUser($actor)->authorize('manageRoles', $team);
+
             $before = $member->roleList();
             $isRepresentative = in_array(TeamRole::Representative, $before, true);
 
-            // 役割が1つもない状態は作れない。代表のメンバーは代表が残るので空でもよい(AC-004-09)
+            // 役割が1つもない状態は作れない。代表のメンバーは代表が残るので空でもよい(AC-004-09、ADR-0015)
             if ($requested === [] && ! $isRepresentative) {
                 throw ValidationException::withMessages(['roles' => '役割をすべて外すと除名になります。除名する場合は、除名の操作を行ってください。']);
             }

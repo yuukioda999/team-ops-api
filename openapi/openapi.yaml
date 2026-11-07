@@ -1194,8 +1194,8 @@ components:
           description: 操作の種類の日本語(例:メンバーの役割を変更)
         actor:
           type: string
-          enum: [member, former, system]
-          description: member は今のメンバー、former はすでにチームにいない人、system は仕組みが行った操作
+          enum: [member, former]
+          description: member は今のメンバー、former はすでにチームにいない人(アカウントが消えた人を含む)
         actor_display_name:
           type: [string, 'null']
           description: actor が member のときだけ

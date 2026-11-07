@@ -30,12 +30,9 @@ final class AuditLogResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        // 操作した人のアカウントが消えている場合(actor_user_id が null)も、チームにいない人として扱う(ADR-0015)
         $actorId = $this->resource->actor_user_id;
-        $actor = match (true) {
-            $actorId === null => 'system',
-            isset($this->memberUserIds[$actorId]) => 'member',
-            default => 'former',
-        };
+        $actor = $actorId !== null && isset($this->memberUserIds[$actorId]) ? 'member' : 'former';
 
         return [
             'id' => $this->resource->id,

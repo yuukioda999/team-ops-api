@@ -26,7 +26,8 @@ final class ChangeRolesRequest extends FormRequest
     {
         return [
             'roles' => ['present', 'array', 'max:3'],
-            'roles.*' => ['string', 'distinct', Rule::in(array_map(fn (TeamRole $r) => $r->value, TeamRole::changeable()))],
+            // 代表を送ったときだけ、交代の操作を案内する。それ以外の不正な値は標準の文言
+            'roles.*' => ['bail', 'string', 'distinct', 'not_in:'.TeamRole::Representative->value, Rule::in(array_map(fn (TeamRole $r) => $r->value, TeamRole::changeable()))],
         ];
     }
 
@@ -35,7 +36,7 @@ final class ChangeRolesRequest extends FormRequest
      */
     public function messages(): array
     {
-        return ['roles.*.in' => '代表は役割の変更では付けられません。代表を交代する操作を使ってください。'];
+        return ['roles.*.not_in' => '代表は役割の変更では付けられません。代表を交代する操作を使ってください。'];
     }
 
     /**

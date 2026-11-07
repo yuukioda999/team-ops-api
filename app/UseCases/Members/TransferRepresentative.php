@@ -44,8 +44,8 @@ final class TransferRepresentative
                 'from_user_id' => $current->user_id,
                 'to_user_id' => $target->user_id,
             ]);
-            $this->notifier->rolesChanged($team, $target, $log, 'representative_transferred');
-            $this->notifier->rolesChanged($team, $current, $log, 'representative_transferred');
+            $this->notifier->representativeTransferred($team, $target, $log);
+            $this->notifier->representativeTransferred($team, $current, $log);
 
             return $target->load(['user', 'roles']);
         });

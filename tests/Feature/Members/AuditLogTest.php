@@ -3,8 +3,6 @@
 namespace Tests\Feature\Members;
 
 use App\Enums\TeamRole;
-use App\Models\AuditLog;
-use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Audit\Audit;
 use App\Support\Audit\AuditActionLabel;
@@ -58,20 +56,12 @@ class AuditLogTest extends MemberTestCase
 
         $response = $this->actingAs($this->representative)->getJson($this->url('/audit-logs'))->assertOk();
 
-        $this->assertSame([['system', null], ['former', null]], array_map(fn (array $l) => [$l['actor'], $l['actor_display_name']], (array) $response->json('logs')));
+        // アカウントのない記録(actor_user_id が null)も、チームにいない人として扱う
+        $this->assertSame([['former', null], ['former', null]], array_map(fn (array $l) => [$l['actor'], $l['actor_display_name']], (array) $response->json('logs')));
         $this->assertStringNotContainsString('山田', (string) $response->getContent());
     }
 
-    public function test_AC_004_12_only_this_teams_logs_are_shown(): void
-    {
-        $other = Team::factory()->withRepresentative()->create();
-        Audit::record($other, null, 'invitation.issued');
-
-        $this->actingAs($this->representative)->getJson($this->url('/audit-logs'))->assertOk()->assertJsonPath('logs', []);
-        $this->assertSame(1, AuditLog::count());
-    }
-
-    public function test_AC_004_11_a_team_cannot_be_the_subject_because_subject_id_is_numeric(): void
+    public function test_a_team_cannot_be_the_audit_subject_because_subject_id_is_numeric(): void
     {
         // SQLite は文字列をそのまま入れてしまい、MySQL だけで落ちていた。どの DB でも同じように止める
         $this->expectException(\InvalidArgumentException::class);
