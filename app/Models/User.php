@@ -23,6 +23,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $display_name
  * @property Carbon|null $email_undeliverable_at お知らせのメールがアドレスの問題で届かなかった日時(ADR-0020)
  * @property Carbon|null $email_changed_at
+ * @property string|null $demo_team_id デモユーザーなら属するデモチーム(ADR-0021)
  */
 #[Fillable(['email', 'display_name'])]
 #[Hidden(['email', 'email_index', 'display_name'])]

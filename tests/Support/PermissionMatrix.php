@@ -125,6 +125,7 @@ final class PermissionMatrix
                     ['call' => fn (PermissionContext $c) => $c->test->getJson($c->url('/guardian-candidates'))],
                     ['call' => fn (PermissionContext $c) => $c->test->putJson($c->url("/players/{$c->playerId}/guardians"), ['membership_ids' => []])],
                     ['call' => fn (PermissionContext $c) => $c->test->get($c->url('/players/import/template'), ['Accept' => 'application/json'])],
+                    ['call' => fn (PermissionContext $c) => $c->test->get($c->url('/players/import/sample'), ['Accept' => 'application/json'])],
                     ['call' => fn (PermissionContext $c) => $c->test->post($c->url('/players/import/preview'), ['file' => $upload()], ['Accept' => 'application/json'])],
                     ['call' => fn (PermissionContext $c) => $c->test->post($c->url('/players/import'), ['file' => $upload(), 'file_hash' => hash('sha256', $csv)], ['Accept' => 'application/json'])],
                     ['call' => fn (PermissionContext $c) => $c->test->deleteJson($c->url("/players/{$c->playerId}"))],

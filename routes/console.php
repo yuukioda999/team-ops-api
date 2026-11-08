@@ -24,3 +24,6 @@ Schedule::command('notices:reconcile-deliveries')->hourly()->withoutOverlapping(
 
 // 受け取った webhook の event_id は8日で消す(ADR-0019)
 Schedule::command('model:prune', ['--model' => [RelayEvent::class]])->daily();
+
+// 作成から24時間を過ぎたデモチームを消す(AC-007-07、ADR-0021)。デモモードでなくても、残っていれば消す
+Schedule::command('demo:prune')->hourly()->withoutOverlapping(30);

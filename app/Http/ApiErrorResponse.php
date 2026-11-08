@@ -37,6 +37,20 @@ final class ApiErrorResponse
         503 => '一時的に利用できません。時間をおいてもう一度お試しください',
     ];
 
+    /**
+     * デモのセッションで、デモチームが期限切れで消えていたら、画面に理由を伝える(AC-007-08、ADR-0021)。
+     */
+    private static function unauthenticated(Request $request): JsonResponse
+    {
+        if ($request->hasSession() && $request->session()->has('demo_team_id')) {
+            $request->session()->forget('demo_team_id');
+
+            return new JsonResponse(['message' => 'デモの有効期限が切れました', 'reason' => 'demo_expired'], 401);
+        }
+
+        return self::make(401);
+    }
+
     public static function from(Throwable $e, Request $request): ?JsonResponse
     {
         if (! $request->is('api/*') && ! $request->expectsJson()) {
@@ -45,7 +59,7 @@ final class ApiErrorResponse
 
         return match (true) {
             $e instanceof ValidationException => self::make($e->status, ['errors' => $e->errors()]),
-            $e instanceof AuthenticationException => self::make(401),
+            $e instanceof AuthenticationException => self::unauthenticated($request),
             // Policy で denyAsNotFound() にした場合は 404 にし、データの存在を推測させない(AC-000-01)
             $e instanceof AuthorizationException => self::make($e->hasStatus() ? (int) $e->status() : 403),
             $e instanceof RecordsNotFoundException => self::make(404),
