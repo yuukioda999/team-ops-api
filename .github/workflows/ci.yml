@@ -34,36 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: team_ops
-          MYSQL_USER: team_ops
-          MYSQL_PASSWORD: team_ops
-        ports: ['3306:3306']
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1"
-          --health-interval=5s --health-timeout=5s --health-retries=20
-    env:
-      DB_CONNECTION: mysql
-      DB_HOST: 127.0.0.1
-      DB_PORT: 3306
-      DB_DATABASE: team_ops
-      DB_USERNAME: team_ops
-      DB_PASSWORD: team_ops
-    steps:
-      - uses: actions/checkout@v7
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.4'
-          extensions: pdo_mysql, intl, zip
-          coverage: none
-      - run: composer install --no-interaction --prefer-dist
-      - run: cp .env.example .env && php artisan key:generate
-      - run: php artisan migrate --force
-      - run: php artisan test
-
-  image:
+        image:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -71,15 +42,44 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: prod
+          load: true
+          tags: team-ops-api:ci
+      # FrankenPHP が Laravel を動かして答えるか(DB はないので health は 503 になる)。本番と同じく
+      # ローカル用の鍵と、信頼するプロキシが空のままでは起動しないこと(ProductionSettings)も確かめる
+      - name: Start the image and check that it answers
+        run: |
+          key() { echo "base64:$(openssl rand -base64 32)"; }
+          docker run -d --name api -p 8000:8000 -e APP_ENV=production -e APP_DEBUG=false \
+            -e APP_KEY="$(key)" -e BLIND_INDEX_KEY="$(key)" -e TRUSTED_PROXIES=172.16.0.0/12 \
+            -e DB_CONNECTION=mysql -e DB_HOST=127.0.0.1 -e LOG_CHANNEL=stderr team-ops-api:ci
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /tmp/health.json -w '%{http_code}' http://localhost:8000/api/health || true)
+            [ "$code" != "000" ] && break; sleep 1
+          done
+          cat /tmp/health.json; echo
+          test "$code" = "503"
+          curl -sI http://localhost:8000/api/health | grep -qi '^x-powered-by' && { echo "X-Powered-By is exposed"; exit 1; } || true
+          docker exec api whoami | grep -qx app
+          docker exec api php artisan --version
+      - if: always()
+        run: docker logs api 2>&1 | tail -50; docker rm -f api || true
       - uses: docker/login-action@v4
         if: github.ref == 'refs/heads/main'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # 本番のサーバーはコミットのハッシュのタグを指定して取ってくる(ADR-0022)
       - uses: docker/build-push-action@v7
+        if: github.ref == 'refs/heads/main'
         with:
           context: .
           target: prod
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: ghcr.io/${{ github.repository }}:latest
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}

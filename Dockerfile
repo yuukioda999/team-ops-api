@@ -15,11 +15,25 @@ FROM base AS dev
 EXPOSE 8000
 CMD ["sh", "-c", "composer install && php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=8000"]
 
-# Production: dependencies baked in, runs as a non-root user.
-FROM base AS prod
-RUN chown app:app /app
+# Production: FrankenPHP serves HTTP on :8000 inside the Compose network (ADR-0022, T35).
+# HTTPS is handled by Caddy in front, and the web image's nginx forwards /api here.
+# The queue worker and the scheduler use this same image with another command.
+FROM dunglas/frankenphp:1-php8.4 AS prod
+WORKDIR /app
+RUN install-php-extensions pdo_mysql intl zip opcache pcntl
+# 例外のトレースに関数の引数(個人情報を含みうる)を含めない(AC-000-04)
+RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
+    && echo 'zend.exception_ignore_args=On' > "$PHP_INI_DIR/conf.d/zz-team-ops.ini" \
+    && printf 'opcache.enable_cli=1\nopcache.validate_timestamps=0\nexpose_php=Off\n' >> "$PHP_INI_DIR/conf.d/zz-team-ops.ini"
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+# A non-root user on a non-privileged port needs no capability (FrankenPHP's docs)
+RUN useradd --create-home --uid 1000 app \
+    && setcap -r /usr/local/bin/frankenphp \
+    && chown -R app:app /config/caddy /data/caddy /app
 COPY --chown=app:app . .
 USER app
 RUN composer install --no-dev --optimize-autoloader --no-interaction
+# HTTP only on :8000. No automatic HTTPS inside the network
+ENV SERVER_NAME=:8000
 EXPOSE 8000
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+# The image's own command runs FrankenPHP with its Caddyfile (root /app/public)
