@@ -10,6 +10,7 @@ use App\Models\User;
 use App\UseCases\Demo\CreateDemoTeam;
 use App\UseCases\Demo\DemoTeamsFull;
 use App\UseCases\Demo\FindDemoUser;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -27,17 +28,17 @@ final class DemoSessionController extends Controller
         return new JsonResponse(['enabled' => true, 'lifetime_hours' => CreateDemoTeam::LIFETIME_HOURS]);
     }
 
-    public function store(DemoRoleRequest $request, CreateDemoTeam $create, FindDemoUser $find): JsonResponse
+    public function store(DemoRoleRequest $request, CreateDemoTeam $create): JsonResponse
     {
         if (! $request->hasSession()) {
             return new JsonResponse(['message' => ApiErrorResponse::message(419)], 419);
         }
         try {
-            $team = $create()['team'];
+            ['team' => $team, 'users' => $users] = $create();
         } catch (DemoTeamsFull) {
             return new JsonResponse(['message' => 'デモが混み合っています。時間をおいてもう一度お試しください。'], 503);
         }
-        $user = $find($team->id, $request->role());
+        $user = $users[$request->role()->value] ?? null;
         abort_if($user === null, 500);
 
         return $this->login($request, $user, $team->id, 201);
@@ -45,10 +46,11 @@ final class DemoSessionController extends Controller
 
     public function switch(DemoRoleRequest $request, FindDemoUser $find): JsonResponse
     {
-        // デモモードでなければ、ログインより先に 404 にする(EnsureDemoMode)ため、ここでログインを確かめる
+        // デモモードでなければ、ログインより先に 404 にする(EnsureDemoMode)ため、ここでログインを確かめる。
+        // 未ログインは auth:sanctum と同じ例外にし、期限切れなら demo_expired を返す(AC-007-08)
         $current = $request->user('sanctum');
         if (! $current instanceof User || ! $request->hasSession()) {
-            return new JsonResponse(['message' => ApiErrorResponse::message(401)], 401);
+            throw new AuthenticationException;
         }
         $teamId = $request->session()->get(self::SESSION_KEY);
         // 自分が作ったデモチームの中でだけ切り替えられる

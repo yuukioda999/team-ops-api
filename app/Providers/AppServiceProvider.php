@@ -139,13 +139,31 @@ class AppServiceProvider extends ServiceProvider
         // 名簿の CSV の確認と確定(1MB のファイルを読むので、連続で送られても負荷が上がらないように)
         RateLimiter::for('player-import', fn (Request $request) => Limit::perMinute(10)->by('player-import:user:'.$request->user()?->getAuthIdentifier()));
 
-        // デモチームの作成は IP ごとに1時間20回まで(AC-007-09)
-        RateLimiter::for('demo-create', fn (Request $request) => Limit::perHour(20)->by('demo-create:ip:'.$request->ip()));
+        // デモチームの作成は IP ごとに1時間20回まで(AC-007-09)。IPv6 は1つの回線に /64 が割り当てられ、
+        // アドレスを変えるだけで数え直しにならないよう、/64 の単位で数える
+        RateLimiter::for('demo-create', fn (Request $request) => Limit::perHour(20)->by('demo-create:ip:'.self::clientNetwork($request->ip())));
 
         // お知らせの人数確認(AC-005-18)。作成の上限は、作れた件数で数えるので SendNotice に置く
         RateLimiter::for('recipient-count', fn (Request $request) => Limit::perMinute(30)->by('recipient-count:user:'.$request->user()?->getAuthIdentifier()));
 
         // トークンの総当たりを防ぐ(トークンは256ビットなので、主に負荷の対策)
         RateLimiter::for('token-consume', fn (Request $request) => Limit::perMinute(30)->by('token-consume:ip:'.$request->ip()));
+    }
+
+    /**
+     * 回数制限で数える単位。IPv4 はアドレス、IPv6 は先頭の /64(AC-007-09)
+     */
+    public static function clientNetwork(?string $ip): string
+    {
+        $packed = $ip === null ? false : @inet_pton($ip);
+        if ($packed === false || strlen($packed) !== 16) {
+            return (string) $ip;
+        }
+        // IPv4 を IPv6 の形で書いたもの(::ffff:203.0.113.1)は、IPv4 のアドレスで数える
+        if (str_starts_with($packed, str_repeat("\0", 10)."\xff\xff")) {
+            return (string) inet_ntop(substr($packed, 12));
+        }
+
+        return bin2hex(substr($packed, 0, 8)).'::/64';
     }
 }

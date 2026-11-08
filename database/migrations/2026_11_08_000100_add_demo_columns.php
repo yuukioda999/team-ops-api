@@ -15,13 +15,13 @@ return new class extends Migration
             $table->dateTime('demo_expires_at')->nullable()->index()->comment('デモチームなら削除する日時(作成から24時間)。通常のチームは null');
         });
         Schema::table('users', function (Blueprint $table) {
-            $table->string('demo_team_id', 26)->nullable()->index()->comment('デモユーザーなら属するデモチーム。チームと一緒に消す');
+            $table->foreignUlid('demo_team_id')->nullable()->comment('デモユーザーなら属するデモチーム。チームを消すと一緒に消える')->constrained('teams')->cascadeOnDelete();
         });
     }
 
     public function down(): void
     {
-        Schema::table('users', fn (Blueprint $table) => $table->dropColumn('demo_team_id'));
+        Schema::table('users', fn (Blueprint $table) => $table->dropConstrainedForeignId('demo_team_id'));
         Schema::table('teams', fn (Blueprint $table) => $table->dropColumn('demo_expires_at'));
     }
 };

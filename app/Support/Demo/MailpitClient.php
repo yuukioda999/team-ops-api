@@ -44,23 +44,46 @@ final class MailpitClient
             ];
         }
 
+        // 新しい順は Mailpit の返す順に任せず、ここで並べる
+        usort($out, fn (array $a, array $b) => (strtotime($b['sent_at']) ?: 0) <=> (strtotime($a['sent_at']) ?: 0));
+
         return $out;
     }
 
     /**
-     * 宛先のドメインのメールを消す(デモチームの削除、AC-007-07)。
+     * 宛先のドメインのメールを消す(デモチームの削除、AC-007-07)。Mailpit につながらなければ false。
      */
-    public function deleteTo(string $domain): void
+    public function deleteTo(string $domain): bool
+    {
+        return $this->deleteWhere("to:\"@{$domain}\"");
+    }
+
+    /**
+     * デモチーム宛て(@demo-)のメールのうち、Mailpit が受け取ったのが $before より前のものを消す。
+     * チームの削除のあとに届いたメールや、消せなかったメールを後から消す(AC-007-07)
+     */
+    public function deleteDemoMailsReceivedBefore(\DateTimeInterface $before): bool
+    {
+        $utc = \DateTimeImmutable::createFromInterface($before)->setTimezone(new \DateTimeZone('UTC'));
+
+        return $this->deleteWhere('to:"@'.DemoData::DOMAIN_PREFIX.'" before:"'.$utc->format('Y-m-d\\TH:i:s\\Z').'"');
+    }
+
+    private function deleteWhere(string $query): bool
     {
         $base = $this->baseUrl();
         if ($base === null) {
-            return;
+            return true;
         }
         try {
-            $this->http->timeout(self::TIMEOUT_SECONDS)->delete($base.'/api/v1/search?'.http_build_query(['query' => "to:\"@{$domain}\""]))->throw();
+            $this->http->timeout(self::TIMEOUT_SECONDS)->delete($base.'/api/v1/search?'.http_build_query(['query' => $query]))->throw();
+
+            return true;
         } catch (\Throwable $e) {
-            // 次の回の削除でやり直せないので、ログに残す(宛先のドメインはチームIDだけで、個人情報を含まない)
+            // 消し残しは次の回の古いメールの削除で消える。検索条件はチームIDと日時だけで、個人情報を含まない
             report($e);
+
+            return false;
         }
     }
 

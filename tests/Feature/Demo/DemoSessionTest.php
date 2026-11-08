@@ -83,7 +83,7 @@ class DemoSessionTest extends DemoTestCase
         $this->postJson('/api/demo/sessions/switch', ['role' => 'parent'])->assertUnauthorized();
         // セッションのデモチームに属さないユーザー(ここでは別のチームに移ったことにする)は切り替えられない
         $login = $this->demoLogin('representative')->assertCreated();
-        $this->demoUser($login)->forceFill(['demo_team_id' => 'other-team'])->save();
+        $this->demoUser($login)->forceFill(['demo_team_id' => Team::factory()->create()->id])->save();
         $this->postJson('/api/demo/sessions/switch', ['role' => 'parent'])->assertForbidden();
     }
 
@@ -96,6 +96,18 @@ class DemoSessionTest extends DemoTestCase
         // ほかの IP からは作れる
         $this->demoLogin('parent', '203.0.113.21')->assertCreated();
         $this->assertSame(21, Team::whereNotNull('demo_expires_at')->count());
+    }
+
+    public function test_AC_007_09_ipv6_addresses_in_one_64_block_share_the_limit(): void
+    {
+        // 1つの回線に割り当てられる /64 の中でアドレスを変えても、数え直しにならない
+        for ($i = 1; $i <= 20; $i++) {
+            $this->demoLogin('parent', '2001:db8:1:2::'.dechex($i))->assertCreated();
+        }
+        $this->demoLogin('parent', '2001:db8:1:2:ffff::1')->assertStatus(429);
+        // 隣の /64 と IPv4 からは作れる
+        $this->demoLogin('parent', '2001:db8:1:3::1')->assertCreated();
+        $this->demoLogin('parent', '::ffff:203.0.113.30')->assertCreated();
     }
 
     public function test_AC_007_10_no_more_than_500_demo_teams_and_an_alert(): void

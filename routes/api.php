@@ -97,9 +97,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/players', [PlayerController::class, 'store']);
         Route::get('/players/import/template', [PlayerImportController::class, 'template']);
         Route::get('/players/import/sample', [PlayerImportController::class, 'sample']);
-
-        // デモチームから送られたメール(007)。デモモードでない、デモチームでなければ 404
-        Route::get('/demo/mails', [DemoMailController::class, 'index']);
         Route::post('/players/import/preview', [PlayerImportController::class, 'preview'])->middleware('throttle:player-import');
         Route::post('/players/import', [PlayerImportController::class, 'store'])->middleware('throttle:player-import')->name('players.import');
         Route::get('/players/{player}', [PlayerController::class, 'show'])->where('player', '[0-9]{1,18}');
@@ -107,5 +104,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/players/{player}', [PlayerController::class, 'destroy'])->where('player', '[0-9]{1,18}');
         Route::put('/players/{player}/guardians', [PlayerController::class, 'guardians'])->where('player', '[0-9]{1,18}');
         Route::get('/guardian-candidates', [PlayerController::class, 'candidates']);
+
+        // デモチームから送られたメール(007)。デモモードでない、デモチームでなければ 404
+        Route::get('/demo/mails', [DemoMailController::class, 'index']);
     });
 });

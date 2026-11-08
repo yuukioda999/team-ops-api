@@ -10,6 +10,9 @@ use App\Enums\Grade;
  */
 final class DemoData
 {
+    /** デモチームのメールのドメインの先頭(demo-{チームID}.invalid) */
+    public const string DOMAIN_PREFIX = 'demo-';
+
     public const string TEAM_NAME = 'みどり台FC U-10(デモ)';
 
     public const int PARENTS = 20;
@@ -85,7 +88,7 @@ final class DemoData
 
     public static function domain(string $teamId): string
     {
-        return 'demo-'.strtolower($teamId).'.invalid';
+        return self::DOMAIN_PREFIX.strtolower($teamId).'.invalid';
     }
 
     /** サンプル CSV(AC-007-16)。名簿の CSV と同じ見出し */

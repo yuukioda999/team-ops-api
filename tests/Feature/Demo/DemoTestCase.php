@@ -22,11 +22,17 @@ abstract class DemoTestCase extends TestCase
     /** @var list<array<string, mixed>> notify-relay に送った配信依頼 */
     protected array $relayed = [];
 
-    /** @var list<array{ID: string, Subject: string, To: list<array{Address: string}>, Created: string, Text: string}> Mailpit にあるメール(新しい順) */
+    /** @var list<array{ID: string, Subject: string, To: list<array{Address: string}>, Created: string, Text: string}> Mailpit にあるメール */
     protected array $mailbox = [];
 
     /** @var list<string> Mailpit に削除を頼んだ検索条件 */
     protected array $mailpitDeleted = [];
+
+    /** Mailpit が止まっている(つながらない)ことにする */
+    protected bool $mailpitDown = false;
+
+    /** Mailpit に削除を頼んだ回数(つながらなかったものも含む) */
+    protected int $mailpitDeleteAttempts = 0;
 
     protected function setUp(): void
     {
@@ -53,6 +59,10 @@ abstract class DemoTestCase extends TestCase
         parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
         $q = is_string($query['query'] ?? null) ? $query['query'] : '';
         if ($request->method() === 'DELETE') {
+            $this->mailpitDeleteAttempts++;
+            if ($this->mailpitDown) {
+                return Http::response(null, 503);
+            }
             $this->mailpitDeleted[] = $q;
 
             return Http::response(null, 200);
