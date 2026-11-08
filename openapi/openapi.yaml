@@ -2056,7 +2056,7 @@ components:
     Me:
       type: object
       additionalProperties: false
-      required: [email, display_name, needs_display_name, email_undeliverable, teams, join_requests]
+      required: [email, display_name, needs_display_name, email_undeliverable, demo_team_id, teams, join_requests]
       properties:
         email:
           type: string
@@ -2070,6 +2070,9 @@ components:
         email_undeliverable:
           type: boolean
           description: お知らせのメールがアドレスの問題で届かなかった。アドレスを変えるまでお知らせのメールを送らない(AC-006-16・17)
+        demo_team_id:
+          type: [string, 'null']
+          description: デモユーザーなら属するデモチーム(007)。通常のユーザーは null
         teams:
           type: array
           items:
@@ -2100,14 +2103,7 @@ components:
           enum: [representative, officer, coach, parent]
 
     DemoLoginResult:
-      allOf:
-        - $ref: '#/components/schemas/Me'
-        - type: object
-          required: [demo_team_id]
-          properties:
-            demo_team_id:
-              type: string
-              description: 自分が作ったデモチーム
+      $ref: '#/components/schemas/Me'
 
     DemoMail:
       type: object

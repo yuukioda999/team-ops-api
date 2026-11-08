@@ -70,6 +70,6 @@ final class DemoSessionController extends Controller
         $request->session()->regenerate();
         $request->session()->put(self::SESSION_KEY, $teamId);
 
-        return new JsonResponse([...(new MeResource($user))->resolve($request), 'demo_team_id' => $teamId], $status);
+        return new JsonResponse((new MeResource($user))->resolve($request), $status);
     }
 }

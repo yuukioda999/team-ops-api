@@ -34,6 +34,8 @@ final class MeResource extends JsonResource
             'needs_display_name' => ! $user->hasCompletedRegistration(),
             // お知らせのメールがアドレスの問題で届かなかった。アドレスを変えるまでメールを送らない(AC-006-16・17、ADR-0020)
             'email_undeliverable' => $user->email_undeliverable_at !== null,
+            // デモユーザーなら、属するデモチーム(007)。画面はデモの表示と役割の切り替えを出す
+            'demo_team_id' => $user->demo_team_id,
             // どのチームにも所属していなければ空。画面は「チームを作成する」「招待から参加する」を出す(AC-001-14)
             'teams' => $user->teams()->orderBy('teams.created_at')->get()->map(function (Team $team): array {
                 /** @var TeamMembership $membership */
