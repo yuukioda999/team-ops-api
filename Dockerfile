@@ -32,7 +32,12 @@ RUN useradd --create-home --uid 1000 app \
     && chown -R app:app /config/caddy /data/caddy /app
 COPY --chown=app:app . .
 USER app
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-cache
+# Routes and events do not depend on the settings, so they are cached in the image. The settings
+# (config:cache) come from the environment at run time and are not. ProductionSettings refuses
+# to boot without TRUSTED_PROXIES, so give it a placeholder for these two commands only
+RUN APP_KEY=base64:$(head -c 32 /dev/urandom | base64) TRUSTED_PROXIES=127.0.0.1 php artisan route:cache \
+    && APP_KEY=base64:$(head -c 32 /dev/urandom | base64) TRUSTED_PROXIES=127.0.0.1 php artisan event:cache
 # HTTP only on :8000. No automatic HTTPS inside the network
 ENV SERVER_NAME=:8000
 EXPOSE 8000

@@ -115,7 +115,9 @@ return [
             'level' => env('LOG_LEVEL', 'debug'),
             'handler' => StreamHandler::class,
             'handler_with' => [
-                'stream' => 'php://stderr',
+                // 定期処理(schedule:work)は各コマンドを出力を捨てる子プロセスで動かすので、そのコンテナでは
+                // /proc/1/fd/2(schedule:work 自身の標準エラー)に書く。指定がなければ自分の標準エラー
+                'stream' => env('LOG_STDERR_STREAM', 'php://stderr'),
             ],
             'formatter' => env('LOG_STDERR_FORMATTER'),
             'processors' => [PsrLogMessageProcessor::class],
