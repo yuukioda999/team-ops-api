@@ -38,6 +38,8 @@ tags:
     description: メンバーの管理と監査ログ(004)
   - name: notices
     description: お知らせ(005)、既読・配信状況・再通知(006)
+  - name: demo
+    description: デモモード(007)。DEMO_MODE=true のときだけ動き、それ以外は404
   - name: internal
     description: サービス間の通信(notify-relay からの送信結果)
 
@@ -70,6 +72,8 @@ paths:
             schema:
               $ref: '#/components/schemas/LoginLinkInput'
       responses:
+        '403':
+          $ref: '#/components/responses/DemoMode'
         '202':
           description: メールを送った(送ることにした)
           content:
@@ -100,6 +104,8 @@ paths:
             schema:
               $ref: '#/components/schemas/TokenInput'
       responses:
+        '403':
+          $ref: '#/components/responses/DemoMode'
         '200':
           description: ログインした
           content:
@@ -184,6 +190,8 @@ paths:
             schema:
               $ref: '#/components/schemas/NewEmailInput'
       responses:
+        '403':
+          $ref: '#/components/responses/DemoMode'
         '202':
           description: 確認メールを送った
           content:
@@ -215,6 +223,8 @@ paths:
             schema:
               $ref: '#/components/schemas/TokenInput'
       responses:
+        '403':
+          $ref: '#/components/responses/DemoMode'
         '200':
           description: 変更した
           content:
@@ -253,6 +263,8 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateTeamInput'
       responses:
+        '403':
+          $ref: '#/components/responses/DemoMode'
         '201':
           description: 作成した
           content:
@@ -1210,6 +1222,155 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/demo:
+    get:
+      tags: [demo]
+      operationId: getDemo
+      summary: デモモードが有効か
+      description: 画面が「デモとしてログイン」を出すかを決めるのに使います(AC-007-01)。デモモードでなければ404です(AC-007-17)。
+      responses:
+        '200':
+          description: デモモードが有効
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [enabled, lifetime_hours]
+                properties:
+                  enabled:
+                    type: boolean
+                  lifetime_hours:
+                    type: integer
+                    description: デモチームが消えるまでの時間
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/demo/sessions:
+    post:
+      tags: [demo]
+      operationId: createDemoSession
+      summary: デモとしてログインする
+      description: |
+        訪問者専用のデモチームを作り、選んだ役割のデモユーザーとしてログインします(AC-007-02)。デモチームは24時間で消えます。
+        IP ごとに1時間20回まで(AC-007-09)。存在するデモチームが500以上なら 503 です(AC-007-10)。デモモードでなければ404です。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DemoRoleInput'
+      responses:
+        '201':
+          description: ログインした
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoLoginResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          description: デモが混み合っている
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+
+  /api/demo/sessions/switch:
+    post:
+      tags: [demo]
+      operationId: switchDemoRole
+      summary: デモの役割を切り替える
+      description: 自分が作ったデモチームの、別の役割のデモユーザーとしてログインし直します。データはそのままです(AC-007-05)。
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DemoRoleInput'
+      responses:
+        '200':
+          description: 切り替えた
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoLoginResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '419':
+          $ref: '#/components/responses/CsrfExpired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /api/teams/{team}/demo/mails:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [demo]
+      operationId: listDemoMails
+      summary: デモチームから送られたメール
+      description: |
+        デモチームのメンバーだけ。このデモチームから送られ、メールの受け止め先(Mailpit)に届いたメールを新しい順に最大30通返します(AC-007-12)。
+        ほかの訪問者のメールは返しません。デモモードでない、デモチームでなければ404です。
+      responses:
+        '200':
+          description: メール
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [mails]
+                properties:
+                  mails:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DemoMail'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: メールの受け止め先につながらない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+
+  /api/teams/{team}/players/import/sample:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [players]
+      operationId: getPlayerImportSample
+      summary: 取り込みを試すためのサンプル CSV
+      description: 代表・役員だけ。架空の選手20人分です(AC-007-16)。UTF-8(BOM付き)です。
+      responses:
+        '200':
+          description: サンプル
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/teams/{team}/players/import/preview:
     parameters:
       - $ref: '#/components/parameters/TeamId'
@@ -1393,6 +1554,8 @@ paths:
             schema:
               $ref: '#/components/schemas/JoinRequestInput'
       responses:
+        '403':
+          $ref: '#/components/responses/DemoMode'
         '201':
           description: 申請した
           content:
@@ -1489,6 +1652,10 @@ components:
         message:
           type: string
           description: 利用者向けの文言
+        reason:
+          type: string
+          enum: [demo_mode, demo_expired]
+          description: 画面が表示を変えるための理由(demo_mode:デモ環境では使えない、demo_expired:デモの有効期限が切れた)
 
     ValidationError:
       type: object
@@ -1923,6 +2090,42 @@ components:
               type: [string, 'null']
               description: ログイン後に進む先(AC-001-19)。ログイン用リンクの要求で受け付けた値
 
+    DemoRoleInput:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [representative, officer, coach, parent]
+
+    DemoLoginResult:
+      allOf:
+        - $ref: '#/components/schemas/Me'
+        - type: object
+          required: [demo_team_id]
+          properties:
+            demo_team_id:
+              type: string
+              description: 自分が作ったデモチーム
+
+    DemoMail:
+      type: object
+      additionalProperties: false
+      required: [subject, to, sent_at, text]
+      properties:
+        subject:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        sent_at:
+          type: string
+          description: 受け止め先に届いた日時
+        text:
+          type: string
+
     TeamSummary:
       type: object
       additionalProperties: false
@@ -2304,6 +2507,12 @@ components:
             $ref: '#/components/schemas/ValidationError'
     Unauthenticated:
       description: ログインしていない、またはセッションが切れた(AC-000-02、AC-001-07)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    DemoMode:
+      description: デモ環境では使えない操作(AC-007-03・14・15)。`reason` は demo_mode
       content:
         application/json:
           schema:

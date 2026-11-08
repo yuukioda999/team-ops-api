@@ -168,13 +168,15 @@ class LoginLinkTest extends AuthTestCase
         $this->assertSame(1, OutboxMessage::count());
     }
 
-    public function test_AC_007_13_demo_mode_alone_also_limits_recipients_to_invalid(): void
+    // 007 でデモモードではマジックリンクを使えなくした(AC-007-03)。デモモードで宛先を .invalid に限ることは
+    // tests/Feature/Demo/DemoRestrictionTest の AC-007-13 で、お知らせのメールで確かめる
+    public function test_AC_007_03_demo_mode_refuses_login_links_even_for_invalid_addresses(): void
     {
         config(['team_ops.invalid_recipients_only' => false, 'team_ops.demo_mode' => true]);
 
-        $this->postJson('/api/auth/login-links', ['email' => 'parent@example.com'])
-            ->assertUnprocessable()
-            ->assertJsonPath('errors.email.0', 'この環境では、.invalid で終わるメールアドレスだけ使えます。');
+        $this->postJson('/api/auth/login-links', ['email' => 'parent@example.com'])->assertForbidden()->assertJsonPath('reason', 'demo_mode');
+        $this->postJson('/api/auth/login-links', ['email' => 'parent@example.invalid'])->assertForbidden();
+        $this->postJson('/api/auth/login-links/consume', ['token' => str_repeat('a', 64)])->assertForbidden();
         $this->assertSame(0, OutboxMessage::count());
     }
 

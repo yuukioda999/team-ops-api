@@ -4,10 +4,12 @@ use App\Http\Controllers\Auth\EmailChangeController;
 use App\Http\Controllers\Auth\LoginLinkController;
 use App\Http\Controllers\Auth\MeController;
 use App\Http\Controllers\Auth\SessionController;
+use App\Http\Controllers\Demo\DemoSessionController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\Internal\RelayEventController;
 use App\Http\Controllers\Invitations\InvitationController as JoinController;
 use App\Http\Controllers\Teams\AuditLogController;
+use App\Http\Controllers\Teams\DemoMailController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\JoinRequestController;
 use App\Http\Controllers\Teams\MemberController;
@@ -16,14 +18,24 @@ use App\Http\Controllers\Teams\NoticeStatusController;
 use App\Http\Controllers\Teams\PlayerController;
 use App\Http\Controllers\Teams\PlayerImportController;
 use App\Http\Controllers\Teams\TeamController;
+use App\Http\Middleware\BlockInDemoMode;
+use App\Http\Middleware\EnsureDemoMode;
 use App\Http\Middleware\VerifyRelaySignature;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class);
 
-// ログイン(ADR-0008)。リンクの要求は回数を制限する(AC-001-05)
-Route::post('/auth/login-links', [LoginLinkController::class, 'store'])->middleware('throttle:login-link');
-Route::post('/auth/login-links/consume', [LoginLinkController::class, 'consume'])->middleware('throttle:token-consume');
+// ログイン(ADR-0008)。リンクの要求は回数を制限する(AC-001-05)。デモモードでは使えない(AC-007-03)
+Route::post('/auth/login-links', [LoginLinkController::class, 'store'])->middleware([BlockInDemoMode::class, 'throttle:login-link']);
+Route::post('/auth/login-links/consume', [LoginLinkController::class, 'consume'])->middleware([BlockInDemoMode::class, 'throttle:token-consume']);
+
+// デモモード(007、ADR-0021)。デモモードでなければ 404(AC-007-17)
+Route::middleware(EnsureDemoMode::class)->group(function () {
+    Route::get('/demo', [DemoSessionController::class, 'show']);
+    Route::post('/demo/sessions', [DemoSessionController::class, 'store'])->middleware('throttle:demo-create');
+    // ログインはコントローラで確かめる(デモモードでなければ、ログインより先に 404 にするため)
+    Route::post('/demo/sessions/switch', [DemoSessionController::class, 'switch']);
+});
 
 // 招待リンクのチーム名(ログイン不要、AC-002-05・07)。チームの外に置き、チーム名と競技だけを返す
 Route::post('/invitations/preview', [JoinController::class, 'preview'])->middleware('throttle:invitation-preview');
@@ -33,15 +45,15 @@ Route::post('/internal/notify-relay/events', [RelayEventController::class, 'stor
 
 Route::middleware('auth:sanctum')->group(function () {
     // 招待リンクからの参加申請(AC-002-06〜10)。申請者はまだメンバーではないので、チームの外に置く
-    Route::post('/invitations/applications', [JoinController::class, 'apply'])->middleware('throttle:join-request');
+    Route::post('/invitations/applications', [JoinController::class, 'apply'])->middleware([BlockInDemoMode::class, 'throttle:join-request']);
 
     Route::post('/auth/logout', [SessionController::class, 'destroy']);
     Route::get('/me', [MeController::class, 'show']);
     Route::patch('/me', [MeController::class, 'update']);
-    Route::post('/me/email-changes', [EmailChangeController::class, 'store'])->middleware('throttle:email-change');
-    Route::post('/me/email-changes/consume', [EmailChangeController::class, 'consume'])->middleware('throttle:token-consume');
+    Route::post('/me/email-changes', [EmailChangeController::class, 'store'])->middleware([BlockInDemoMode::class, 'throttle:email-change']);
+    Route::post('/me/email-changes/consume', [EmailChangeController::class, 'consume'])->middleware([BlockInDemoMode::class, 'throttle:token-consume']);
 
-    Route::post('/teams', [TeamController::class, 'store']);
+    Route::post('/teams', [TeamController::class, 'store'])->middleware(BlockInDemoMode::class);
 
     // チームのデータはすべてこの下に置く。{team} は所属しているチームからだけ探す(ADR-0009)。
     // 新しいルートをこの外に置くと、tests/Tenancy のルートの検査が落ちる
@@ -84,6 +96,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/players', [PlayerController::class, 'index']);
         Route::post('/players', [PlayerController::class, 'store']);
         Route::get('/players/import/template', [PlayerImportController::class, 'template']);
+        Route::get('/players/import/sample', [PlayerImportController::class, 'sample']);
+
+        // デモチームから送られたメール(007)。デモモードでない、デモチームでなければ 404
+        Route::get('/demo/mails', [DemoMailController::class, 'index']);
         Route::post('/players/import/preview', [PlayerImportController::class, 'preview'])->middleware('throttle:player-import');
         Route::post('/players/import', [PlayerImportController::class, 'store'])->middleware('throttle:player-import')->name('players.import');
         Route::get('/players/{player}', [PlayerController::class, 'show'])->where('player', '[0-9]{1,18}');

@@ -139,6 +139,9 @@ class AppServiceProvider extends ServiceProvider
         // 名簿の CSV の確認と確定(1MB のファイルを読むので、連続で送られても負荷が上がらないように)
         RateLimiter::for('player-import', fn (Request $request) => Limit::perMinute(10)->by('player-import:user:'.$request->user()?->getAuthIdentifier()));
 
+        // デモチームの作成は IP ごとに1時間20回まで(AC-007-09)
+        RateLimiter::for('demo-create', fn (Request $request) => Limit::perHour(20)->by('demo-create:ip:'.$request->ip()));
+
         // お知らせの人数確認(AC-005-18)。作成の上限は、作れた件数で数えるので SendNotice に置く
         RateLimiter::for('recipient-count', fn (Request $request) => Limit::perMinute(30)->by('recipient-count:user:'.$request->user()?->getAuthIdentifier()));
 

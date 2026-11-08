@@ -7,6 +7,7 @@ use App\Http\Requests\Players\PlayerCsvRequest;
 use App\Http\Resources\PlayerImportPreviewResource;
 use App\Models\Team;
 use App\Models\User;
+use App\Support\Demo\DemoData;
 use App\Support\Roster\PlayerCsv;
 use App\UseCases\Players\ImportPlayers;
 use App\UseCases\Players\PreviewPlayerImport;
@@ -26,6 +27,17 @@ final class PlayerImportController extends Controller
         return response(PlayerCsv::TEMPLATE, 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="players-template.csv"',
+        ]);
+    }
+
+    /** サンプル CSV(架空の選手20人、AC-007-16)。テンプレートと同じく代表・役員だけ */
+    public function sample(Team $team): Response
+    {
+        Gate::authorize('managePlayers', $team);
+
+        return response(DemoData::sampleCsv(), 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="players-sample.csv"',
         ]);
     }
 

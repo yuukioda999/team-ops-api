@@ -127,6 +127,12 @@ class TeamIsolationTest extends TestCase
         'POST api/invitations/preview' => false,
         // notify-relay からの送信結果。ログインではなく署名で確かめ、何も返さない(204、ADR-0019)
         'POST api/internal/notify-relay/events' => false,
+        // デモとしてログイン(007)。自分用のデモチームを新しく作るだけで、既存のチームのデータは返さない
+        'GET api/demo' => false,
+        'POST api/demo/sessions' => false,
+        // デモの役割の切り替え。セッションに残した、自分が作ったデモチームの中だけで切り替える。
+        // デモモードでなければログインより先に 404 にするため、ログインはコントローラで確かめる(DemoSessionTest)
+        'POST api/demo/sessions/switch' => false,
         'POST api/invitations/applications' => true,
         'POST api/auth/logout' => true,
         'GET api/me' => true,
