@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM php:8.4-cli AS base
+FROM php:8.5-cli AS base
 WORKDIR /app
 COPY --from=mlocati/php-extension-installer:2 /usr/bin/install-php-extensions /usr/local/bin/
 RUN install-php-extensions pdo_mysql intl zip opcache pcntl
