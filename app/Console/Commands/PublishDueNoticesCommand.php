@@ -18,7 +18,7 @@ final class PublishDueNoticesCommand extends Command
     {
         $count = $publish();
         if ($count > 0) {
-            $this->info("Queued {$count} scheduled notice(s) for publishing.");
+            $this->info("Found {$count} due scheduled notice(s); queued those not already waiting.");
         }
 
         return self::SUCCESS;

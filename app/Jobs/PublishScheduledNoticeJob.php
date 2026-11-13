@@ -18,10 +18,12 @@ final class PublishScheduledNoticeJob implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
-    /** 失敗したら、このジョブではやり直さず、次の分の scheduler がもう一度積む */
-    public int $tries = 1;
-
-    /** 公開されないまま worker が止まっても、この時間がたてば次の分の scheduler がまた積める */
+    /**
+     * 公開の失敗(例外)は handle の中で受け止めてログに出し、ジョブは終える。終わると重なりの止めが外れ、
+     * 次の分の scheduler がもう一度積む。worker が処理の途中で止まったときは、キューの retry_after の
+     * あとに別の worker が拾い直してそのまま公開する(worker の --tries に従う。行のロックで二重にならない)。
+     * 10分は、積んだあとジョブ自体が消えた場合に、また積めるようになるまでの上限
+     */
     public int $uniqueFor = 600;
 
     public function __construct(public readonly int $noticeId) {}

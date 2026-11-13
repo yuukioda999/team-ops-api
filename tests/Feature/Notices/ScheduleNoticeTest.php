@@ -144,6 +144,24 @@ class ScheduleNoticeTest extends NoticeTestCase
         Queue::assertPushed(PublishScheduledNoticeJob::class, 1);
     }
 
+    public function test_AC_005_11_a_notice_that_failed_to_publish_is_published_the_next_minute(): void
+    {
+        // 失敗したジョブのあとに重なりの止めが外れ、次の分にまた積まれて公開される(ADR-0024)
+        $this->member([TeamRole::Parent], '保護者');
+        $id = $this->schedule(10);
+        DB::table('notices')->where('id', $id)->update(['target_type' => 'broken']);
+        $this->travel(10)->minutes();
+        $this->runCommand('notices:publish-due');
+        $this->assertSame(NoticeStatus::Scheduled, Notice::findOrFail($id)->status);
+
+        DB::table('notices')->where('id', $id)->update(['target_type' => 'all']);
+        $this->travel(1)->minutes();
+        $this->runCommand('notices:publish-due');
+
+        $this->assertSame(NoticeStatus::Published, Notice::findOrFail($id)->status);
+        $this->assertCount(1, $this->noticeRequests());
+    }
+
     public function test_AC_005_11_running_the_publishing_job_twice_publishes_and_mails_once(): void
     {
         $this->member([TeamRole::Parent], '保護者');
