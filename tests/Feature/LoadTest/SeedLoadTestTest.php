@@ -18,6 +18,12 @@ final class SeedLoadTestTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['team_ops.loadtest_seed_enabled' => true, 'team_ops.demo_mode' => false]);
+    }
+
     public function test_AC_008_02_creates_teams_of_members_and_one_scheduled_notice_each(): void
     {
         $at = now()->addMinutes(10)->startOfSecond();
@@ -80,6 +86,54 @@ final class SeedLoadTestTest extends TestCase
 
         $this->assertSame(0, Team::count());
         $this->assertSame(0, User::count());
+    }
+
+    public function test_AC_008_03_refuses_without_the_setting_even_in_a_local_environment(): void
+    {
+        // APP_ENV は artisan の --env で上書きできるので、設定がなければ local でも作らない
+        config(['team_ops.loadtest_seed_enabled' => false]);
+
+        $this->assertSame(1, Artisan::call('loadtest:seed', ['--teams' => 2]));
+
+        $this->assertSame(0, Team::count());
+    }
+
+    public function test_AC_008_03_refuses_on_the_public_demo_even_with_the_setting(): void
+    {
+        config(['team_ops.demo_mode' => true]);
+
+        $this->assertSame(1, Artisan::call('loadtest:seed', ['--teams' => 2]));
+
+        $this->assertSame(0, Team::count());
+    }
+
+    public function test_AC_008_02_a_team_needs_at_least_four_members(): void
+    {
+        $this->assertSame(1, Artisan::call('loadtest:seed', ['--teams' => 1, '--members' => 3]));
+
+        $this->assertSame(0, Team::count());
+    }
+
+    public function test_AC_008_07_sessions_need_a_file_to_be_written_to(): void
+    {
+        $this->assertSame(1, Artisan::call('loadtest:seed', ['--teams' => 1, '--sessions' => 2]));
+
+        $this->assertSame(0, Team::count());
+    }
+
+    public function test_AC_008_02_the_rows_have_the_same_columns_filled_as_rows_the_app_creates(): void
+    {
+        // 行をまとめて insert するので、モデルの既定値やイベントが増えたときに黙って食い違わないよう、
+        // ふつうに作った行と、値の入っている列の集合を比べる
+        $appTeam = Team::factory()->create();
+        $appUser = User::factory()->create();
+        $this->assertSame(0, Artisan::call('loadtest:seed', ['--teams' => 1, '--members' => 4]));
+        $filled = fn (string $table, int|string $id): array => array_keys(array_filter((array) DB::table($table)->find($id), fn ($v) => $v !== null));
+        $seededTeam = Team::where('id', '!=', $appTeam->id)->sole();
+        $seededUser = User::where('id', '!=', $appUser->id)->where('id', '!=', $appTeam->created_by)->firstOrFail();
+
+        $this->assertEqualsCanonicalizing($filled('teams', $appTeam->id), $filled('teams', $seededTeam->id));
+        $this->assertEqualsCanonicalizing($filled('users', $appUser->id), $filled('users', $seededUser->id));
     }
 
     public function test_AC_008_07_the_written_sessions_are_logged_in_as_the_chosen_members(): void

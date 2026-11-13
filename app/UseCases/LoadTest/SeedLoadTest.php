@@ -6,12 +6,8 @@ use App\Enums\NoticeStatus;
 use App\Enums\NoticeTarget;
 use App\Enums\Sport;
 use App\Enums\TeamRole;
-use App\Models\User;
 use App\Support\Crypto\BlindIndex;
 use Carbon\CarbonInterface;
-use Illuminate\Auth\SessionGuard;
-use Illuminate\Cookie\CookieValuePrefix;
-use Illuminate\Session\DatabaseSessionHandler;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -23,7 +19,7 @@ use RuntimeException;
  *
  * 1万チーム × 30人を短い時間で作るため、Eloquent で1行ずつ保存せず、行をまとめて insert する。
  * 暗号化とブラインドインデックスは、モデルの保存と同じ処理(Crypt::encryptString と BlindIndex)を使う。
- * 本番の環境では動かない(AC-008-03)。
+ * 試験の環境でしか動かない(AC-008-03、allowed())。
  */
 final class SeedLoadTest
 {
@@ -38,13 +34,27 @@ final class SeedLoadTest
     public function __construct(private readonly BlindIndex $blindIndex) {}
 
     /**
+     * 試験のデータを作ってよいか(AC-008-03)。次の3つがすべてそろうときだけ。
+     * APP_ENV は artisan の --env で上書きできるので、設定(LOADTEST_SEED_ENABLED)も見る。
+     * デモの公開環境(DEMO_MODE)では、設定に関係なく作らない。
+     */
+    public static function allowed(): bool
+    {
+        return app()->environment(self::ALLOWED_ENVIRONMENTS)
+            && config('team_ops.loadtest_seed_enabled') === true
+            && config('team_ops.demo_mode') !== true;
+    }
+
+    public const string NOT_ALLOWED = 'loadtest:seed runs only when APP_ENV is local, testing or loadtest, LOADTEST_SEED_ENABLED is true and DEMO_MODE is off.';
+
+    /**
      * @param  callable(int): void|null  $progress  作ったチームの数を受け取る
      * @return list<string> 作ったチームのID
      */
     public function __invoke(int $teams, int $members, CarbonInterface $scheduledAt, ?callable $progress = null): array
     {
-        if (! app()->environment(self::ALLOWED_ENVIRONMENTS)) {
-            throw new RuntimeException('loadtest:seed runs only when APP_ENV is local, testing or loadtest.');
+        if (! self::allowed()) {
+            throw new RuntimeException(self::NOT_ALLOWED);
         }
         if ($members < 4) {
             throw new RuntimeException('A team needs at least 4 members (representative, officer, coach and a parent).');
@@ -75,7 +85,7 @@ final class SeedLoadTest
             $no = $start + $t + 1;
             $id = strtolower((string) Str::ulid()); // HasUlids と同じく小文字で保存する
             $teamIds[] = $id;
-            $teamRows[] = ['id' => $id, 'name' => "負荷試験チーム {$no}", 'sport' => Sport::Soccer->value, 'created_at' => $now, 'updated_at' => $now];
+            $teamRows[] = ['id' => $id, 'name' => "負荷試験チーム {$no}", 'sport' => Sport::Soccer->value, 'created_by' => null, 'created_at' => $now, 'updated_at' => $now];
             for ($m = 1; $m <= $members; $m++) {
                 $email = "t{$no}-m{$m}-{$run}@".self::DOMAIN;
                 $userRows[] = [
@@ -86,12 +96,16 @@ final class SeedLoadTest
                 ];
             }
         }
-        DB::table('teams')->insert($teamRows);
         foreach (array_chunk($userRows, 1000) as $rows) {
             DB::table('users')->insert($rows);
         }
         /** @var array<string, int> $userIdByIndex */
         $userIdByIndex = DB::table('users')->whereIn('email_index', array_column($userRows, 'email_index'))->pluck('id', 'email_index')->all();
+        // 作成者は各チームの先頭(代表)。チームの行に入れてから insert する(チームごとの UPDATE をしない)
+        foreach ($teamRows as $t => $row) {
+            $teamRows[$t]['created_by'] = $userIdByIndex[$userRows[$t * $members]['email_index']];
+        }
+        DB::table('teams')->insert($teamRows);
 
         $membershipRows = [];
         foreach ($teamIds as $t => $teamId) {
@@ -123,7 +137,6 @@ final class SeedLoadTest
                     'representative_of' => $role === TeamRole::Representative ? $teamId : null, 'created_at' => $now, 'updated_at' => $now,
                 ];
             }
-            DB::table('teams')->where('id', $teamId)->update(['created_by' => $repId]);
             $noticeRows[] = [
                 'team_id' => $teamId, 'author_user_id' => $repId,
                 'title' => Crypt::encryptString('負荷試験のお知らせ'), 'body' => Crypt::encryptString("負荷試験のために送るお知らせです。\n実在の人には届きません。"),
@@ -137,51 +150,5 @@ final class SeedLoadTest
         DB::table('notices')->insert($noticeRows);
 
         return $teamIds;
-    }
-
-    /**
-     * k6 が使うログイン済みのセッションを作る(ADR-0023)。チームの先頭から、代表と保護者を1人ずつ選ぶ。
-     * セッションはふつうのログインと同じ保存先に書き、Cookie の値はブラウザに渡すものと同じ形で返す。
-     *
-     * @param  list<string>  $teamIds
-     * @return list<array{team_id: string, role: string, cookie_name: string, cookie_value: string}>
-     */
-    public function sessions(array $teamIds, int $count): array
-    {
-        if (! app()->environment(self::ALLOWED_ENVIRONMENTS)) {
-            throw new RuntimeException('loadtest:seed runs only when APP_ENV is local, testing or loadtest.');
-        }
-        $store = app('session')->driver();
-        $cookieName = $store->getName();
-        $out = [];
-        foreach (array_slice($teamIds, 0, (int) ceil($count / 2)) as $teamId) {
-            $users = User::query()
-                ->join('team_memberships', 'team_memberships.user_id', '=', 'users.id')
-                ->join('team_member_roles', 'team_member_roles.membership_id', '=', 'team_memberships.id')
-                ->where('team_memberships.team_id', $teamId)
-                ->whereIn('team_member_roles.role', [TeamRole::Representative->value, TeamRole::Parent->value])
-                ->orderBy('users.id')
-                ->get(['users.id', 'team_member_roles.role']);
-            foreach ([TeamRole::Representative->value, TeamRole::Parent->value] as $role) {
-                $user = $users->firstWhere('role', $role);
-                if ($user === null || count($out) >= $count) {
-                    continue;
-                }
-                $store->flush();
-                $store->setId(null);
-                // データベースの保存先は、一度書くと以後は UPDATE だけになる。新しいセッションとして INSERT させる
-                $handler = $store->getHandler();
-                if ($handler instanceof DatabaseSessionHandler) {
-                    $handler->setExists(false);
-                }
-                $store->put('login_web_'.sha1(SessionGuard::class), $user->id);
-                $store->put('_token', Str::random(40));
-                $store->save();
-                $value = Crypt::encrypt(CookieValuePrefix::create($cookieName, Crypt::getKey()).$store->getId(), false);
-                $out[] = ['team_id' => $teamId, 'role' => $role, 'cookie_name' => $cookieName, 'cookie_value' => $value];
-            }
-        }
-
-        return $out;
     }
 }

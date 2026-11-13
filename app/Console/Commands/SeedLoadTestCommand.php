@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\UseCases\LoadTest\CreateLoadTestSessions;
 use App\UseCases\LoadTest\SeedLoadTest;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -21,12 +22,12 @@ final class SeedLoadTestCommand extends Command
         {--sessions=0 : k6 が使うログイン済みのセッションの数}
         {--sessions-out= : セッションの Cookie を書き出す JSON のパス}';
 
-    protected $description = '負荷試験のチーム・利用者・予約のお知らせを作る(local・testing・loadtest のときだけ)';
+    protected $description = '負荷試験のチーム・利用者・予約のお知らせを作る(試験の環境だけ。LOADTEST_SEED_ENABLED=true が要る)';
 
-    public function handle(SeedLoadTest $seed): int
+    public function handle(SeedLoadTest $seed, CreateLoadTestSessions $createSessions): int
     {
-        if (! app()->environment(SeedLoadTest::ALLOWED_ENVIRONMENTS)) {
-            $this->error('loadtest:seed runs only when APP_ENV is local, testing or loadtest. Nothing was created.');
+        if (! SeedLoadTest::allowed()) {
+            $this->error(SeedLoadTest::NOT_ALLOWED.' Nothing was created.');
 
             return self::FAILURE;
         }
@@ -53,10 +54,13 @@ final class SeedLoadTestCommand extends Command
 
             return self::FAILURE;
         }
-        $this->info(sprintf('Created %d teams x %d members and their notices scheduled at %s in %.1f s.', count($ids), $members, $at->toIso8601String(), microtime(true) - $started));
+        $seconds = microtime(true) - $started;
+        $this->info(sprintf('Created %d teams x %d members and their notices scheduled at %s in %.1f s.', count($ids), $members, $at->toIso8601String(), $seconds));
+        // collect.py が結果に入れる(AC-008-02 の作成時間)
+        $this->line(sprintf('seed_seconds=%.1f', $seconds));
 
         if ($sessions > 0) {
-            $cookies = $seed->sessions($ids, $sessions);
+            $cookies = $createSessions($ids, $sessions);
             file_put_contents($out, json_encode($cookies, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             $this->info('Wrote '.count($cookies)." sessions to {$out}.");
         }

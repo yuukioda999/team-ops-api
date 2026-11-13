@@ -13,6 +13,10 @@ return [
     */
     'demo_mode' => (bool) env('DEMO_MODE', false),
 
+    // 負荷試験のデータを作るコマンド(loadtest:seed、spec 008)を許すか。APP_ENV は artisan の --env で
+    // 上書きできるので、それだけに頼らず、試験の環境(loadtest/compose.loadtest.yaml)だけで true にする
+    'loadtest_seed_enabled' => (bool) env('LOADTEST_SEED_ENABLED', false),
+
     // デモの「送信されたメール」の取り出し元(007、ADR-0021)。デモ環境と作業環境の Mailpit
     'mailpit_url' => env('MAILPIT_URL'),
 
