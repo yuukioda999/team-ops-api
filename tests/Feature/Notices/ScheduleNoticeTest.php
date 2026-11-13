@@ -5,12 +5,15 @@ namespace Tests\Feature\Notices;
 use App\Enums\Grade;
 use App\Enums\NoticeStatus;
 use App\Enums\TeamRole;
+use App\Jobs\PublishScheduledNoticeJob;
 use App\Models\Notice;
 use App\Models\NoticeRecipient;
+use App\UseCases\Notices\PublishScheduledNotice;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 
 /**
  * 予約送信(AC-005-09〜13、ADR-0018)。
@@ -108,6 +111,68 @@ class ScheduleNoticeTest extends NoticeTestCase
 
         $events = collect(app(Schedule::class)->events());
         $this->assertTrue($events->contains(fn ($e) => str_contains((string) $e->command, 'notices:publish-due') && $e->expression === '* * * * *'));
+    }
+
+    public function test_AC_005_11_the_scheduler_queues_one_publishing_job_per_due_notice(): void
+    {
+        // ADR-0024:scheduler は積むだけで、公開は worker が並列に行う
+        Queue::fake([PublishScheduledNoticeJob::class]);
+        $due1 = $this->schedule(10, '1件目');
+        $due2 = $this->schedule(10, '2件目');
+        $later = $this->schedule(30, 'あと');
+
+        $this->travel(10)->minutes();
+        $this->runCommand('notices:publish-due');
+
+        Queue::assertPushed(PublishScheduledNoticeJob::class, 2);
+        Queue::assertPushed(PublishScheduledNoticeJob::class, fn (PublishScheduledNoticeJob $job) => in_array($job->noticeId, [$due1, $due2], true));
+        Queue::assertNotPushed(PublishScheduledNoticeJob::class, fn (PublishScheduledNoticeJob $job) => $job->noticeId === $later);
+        // まだ公開されていない(worker が動くまで)
+        $this->assertSame(NoticeStatus::Scheduled, Notice::findOrFail($due1)->status);
+    }
+
+    public function test_AC_005_11_a_notice_waiting_in_the_queue_is_not_queued_again_the_next_minute(): void
+    {
+        Queue::fake([PublishScheduledNoticeJob::class]);
+        $this->schedule(10);
+
+        $this->travel(10)->minutes();
+        $this->runCommand('notices:publish-due');
+        $this->travel(1)->minutes();
+        $this->runCommand('notices:publish-due');
+
+        Queue::assertPushed(PublishScheduledNoticeJob::class, 1);
+    }
+
+    public function test_AC_005_11_a_notice_that_failed_to_publish_is_published_the_next_minute(): void
+    {
+        // 失敗したジョブのあとに重なりの止めが外れ、次の分にまた積まれて公開される(ADR-0024)
+        $this->member([TeamRole::Parent], '保護者');
+        $id = $this->schedule(10);
+        DB::table('notices')->where('id', $id)->update(['target_type' => 'broken']);
+        $this->travel(10)->minutes();
+        $this->runCommand('notices:publish-due');
+        $this->assertSame(NoticeStatus::Scheduled, Notice::findOrFail($id)->status);
+
+        DB::table('notices')->where('id', $id)->update(['target_type' => 'all']);
+        $this->travel(1)->minutes();
+        $this->runCommand('notices:publish-due');
+
+        $this->assertSame(NoticeStatus::Published, Notice::findOrFail($id)->status);
+        $this->assertCount(1, $this->noticeRequests());
+    }
+
+    public function test_AC_005_11_running_the_publishing_job_twice_publishes_and_mails_once(): void
+    {
+        $this->member([TeamRole::Parent], '保護者');
+        $id = $this->schedule(10);
+        $this->travel(10)->minutes();
+
+        (new PublishScheduledNoticeJob($id))->handle(app(PublishScheduledNotice::class));
+        (new PublishScheduledNoticeJob($id))->handle(app(PublishScheduledNotice::class));
+
+        $this->assertSame(NoticeStatus::Published, Notice::findOrFail($id)->status);
+        $this->assertCount(1, $this->noticeRequests());
     }
 
     public function test_AC_005_12_recipients_are_decided_by_the_roster_at_publishing_time(): void

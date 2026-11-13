@@ -3,6 +3,7 @@
 namespace Tests\Feature\LoadTest;
 
 use App\Enums\NoticeStatus;
+use App\Jobs\DeliverOutboxMessage;
 use App\Models\Notice;
 use App\Models\OutboxMessage;
 use App\Models\Team;
@@ -54,7 +55,8 @@ final class SeedLoadTestTest extends TestCase
 
     public function test_AC_008_02_the_scheduled_notices_are_published_to_every_member_as_usual(): void
     {
-        Queue::fake();
+        // 公開のジョブは動かし(sync)、relay への依頼のジョブだけを止める
+        Queue::fake([DeliverOutboxMessage::class]);
         config(['team_ops.invalid_recipients_only' => true]);
         $this->assertSame(0, Artisan::call('loadtest:seed', ['--teams' => 2, '--members' => 5, '--at' => now()->addMinute()->toIso8601String()]));
 

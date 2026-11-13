@@ -12,13 +12,13 @@ final class PublishDueNoticesCommand extends Command
 {
     protected $signature = 'notices:publish-due';
 
-    protected $description = '予約日時を過ぎたお知らせを公開し、メールを送り始める';
+    protected $description = '予約日時を過ぎたお知らせを、公開のジョブにしてキューに積む(公開は worker が行う、ADR-0024)';
 
     public function handle(PublishDueNotices $publish): int
     {
         $count = $publish();
         if ($count > 0) {
-            $this->info("Published {$count} scheduled notice(s).");
+            $this->info("Found {$count} due scheduled notice(s); queued those not already waiting.");
         }
 
         return self::SUCCESS;
