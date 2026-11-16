@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\UseCases\LoadTest\CreateLoadTestSessions;
+use App\UseCases\LoadTest\ListLoadTestRecipients;
 use App\UseCases\LoadTest\SeedLoadTest;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -26,7 +27,7 @@ final class SeedLoadTestCommand extends Command
 
     protected $description = '負荷試験のチーム・利用者・予約のお知らせを作る(試験の環境だけ。LOADTEST_SEED_ENABLED=true が要る)';
 
-    public function handle(SeedLoadTest $seed, CreateLoadTestSessions $createSessions): int
+    public function handle(SeedLoadTest $seed, CreateLoadTestSessions $createSessions, ListLoadTestRecipients $listRecipients): int
     {
         if (! SeedLoadTest::allowed()) {
             $this->error(SeedLoadTest::NOT_ALLOWED.' Nothing was created.');
@@ -63,8 +64,12 @@ final class SeedLoadTestCommand extends Command
 
         $recipientsOut = $this->option('recipients-out');
         if (is_string($recipientsOut)) {
-            $map = $seed->recipients($ids);
-            file_put_contents($recipientsOut, json_encode($map, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+            $map = $listRecipients($ids);
+            if (file_put_contents($recipientsOut, json_encode($map, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)) === false) {
+                $this->error("Could not write the recipients to {$recipientsOut}.");
+
+                return self::FAILURE;
+            }
             $this->info('Wrote '.count($map)." recipients to {$recipientsOut}.");
         }
 

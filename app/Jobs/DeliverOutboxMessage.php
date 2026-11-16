@@ -6,6 +6,7 @@ use App\Enums\OutboxStatus;
 use App\Models\OutboxMessage;
 use App\Support\NotifyRelay\RelayClient;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -48,7 +49,9 @@ final class DeliverOutboxMessage implements ShouldQueue
         $context = ['outbox_message_id' => $message->id, 'kind' => $message->kind, 'attempts' => $message->attempts];
 
         if ($message->give_up_at !== null && $message->give_up_at->isPast()) {
-            $this->finish($message, OutboxStatus::Failed, 'gave_up');
+            if (! $this->finish($message, OutboxStatus::Failed, 'gave_up')) {
+                return;
+            }
             Log::error('Outbox message expired before notify-relay accepted it', $context);
 
             return;
@@ -56,7 +59,9 @@ final class DeliverOutboxMessage implements ShouldQueue
 
         $payload = $message->payload;
         if ($payload === null) {
-            $this->finish($message, OutboxStatus::Failed, 'payload_missing');
+            if (! $this->finish($message, OutboxStatus::Failed, 'payload_missing')) {
+                return;
+            }
             Log::error('Outbox message has no payload', $context);
 
             return;
@@ -67,10 +72,10 @@ final class DeliverOutboxMessage implements ShouldQueue
 
         if ($result->isAccepted()) {
             // 照合で notify-relay に問い合わせるときに使う(ADR-0019)
-            if (is_string($result->deliveryId) && $result->deliveryId !== '') {
-                $message->forceFill(['delivery_id' => $result->deliveryId]);
+            $deliveryId = is_string($result->deliveryId) && $result->deliveryId !== '' ? $result->deliveryId : null;
+            if (! $this->finish($message, OutboxStatus::Sent, null, $deliveryId)) {
+                return;
             }
-            $this->finish($message, OutboxStatus::Sent, null);
             Log::info('Outbox message handed to notify-relay', $context + ['delivery_id' => $result->deliveryId]);
 
             return;
@@ -78,13 +83,19 @@ final class DeliverOutboxMessage implements ShouldQueue
 
         if ($result->shouldRetry()) {
             // 予約したときに書いた next_attempt_at のまま残す。outbox:redispatch が拾う
-            $message->forceFill(['last_error' => $result->reason])->save();
+            if ($this->stillReserved($message)->update(['last_error' => $result->reason, 'updated_at' => Carbon::now()]) === 0) {
+                $this->lostReservation($context);
+
+                return;
+            }
             Log::warning('notify-relay did not accept the outbox message; will retry', $context + ['next_attempt_at' => $message->next_attempt_at?->toIso8601String()]);
 
             return;
         }
 
-        $this->finish($message, OutboxStatus::Failed, $result->reason);
+        if (! $this->finish($message, OutboxStatus::Failed, $result->reason)) {
+            return;
+        }
         Log::error('notify-relay rejected an outbox message', $context);
     }
 
@@ -126,15 +137,51 @@ final class DeliverOutboxMessage implements ShouldQueue
 
     /**
      * 最終状態にする。宛先と本文(ログイン用リンクを含みうる)は、もう使わないので消す(ADR-0003)。
+     * 予約がまだ自分のものであるときだけ書く。別のジョブが予約し直していたら(outbox:redispatch --now と
+     * 重なったとき、ADR-0018 の 2026-11-16 追記)、何も書かずにそちらに任せる。
+     *
+     * @return bool 書いたか
      */
-    private function finish(OutboxMessage $message, OutboxStatus $status, ?string $error): void
+    private function finish(OutboxMessage $message, OutboxStatus $status, ?string $error, ?string $deliveryId = null): bool
     {
-        $message->forceFill([
-            'status' => $status,
-            'sent_at' => $status === OutboxStatus::Sent ? now() : null,
+        $now = Carbon::now();
+        $values = [
+            'status' => $status->value,
+            'sent_at' => $status === OutboxStatus::Sent ? $now : null,
             'next_attempt_at' => null,
             'last_error' => $error,
             'payload' => null,
-        ])->save();
+            'updated_at' => $now,
+        ];
+        if ($deliveryId !== null) {
+            $values['delivery_id'] = $deliveryId; // 照合で notify-relay に問い合わせるときに使う(ADR-0019)
+        }
+        if ($this->stillReserved($message)->update($values) === 0) {
+            $this->lostReservation(['outbox_message_id' => $message->id, 'kind' => $message->kind, 'attempts' => $message->attempts]);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * 予約したときの attempts のまま、送信待ちである行。
+     *
+     * @return Builder<OutboxMessage>
+     */
+    private function stillReserved(OutboxMessage $message): Builder
+    {
+        return OutboxMessage::whereKey($message->id)
+            ->where('status', OutboxStatus::Pending)
+            ->where('attempts', $message->attempts);
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function lostReservation(array $context): void
+    {
+        Log::info('Outbox message was reserved again by another job; leaving the result to it', $context);
     }
 }

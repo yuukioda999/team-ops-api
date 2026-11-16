@@ -8,11 +8,12 @@ use App\Models\OutboxMessage;
 use App\Models\Team;
 use App\Models\TeamMemberRole;
 use App\Models\User;
-use App\UseCases\LoadTest\SeedLoadTest;
+use App\UseCases\LoadTest\ListLoadTestRecipients;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use RuntimeException;
 use Tests\TestCase;
 
 final class SeedLoadTestTest extends TestCase
@@ -70,12 +71,32 @@ final class SeedLoadTestTest extends TestCase
         }
     }
 
-    public function test_AC_008_03_the_recipients_are_not_read_outside_the_test_environment(): void
+    public function test_AC_008_02_the_recipients_map_holds_only_test_addresses(): void
     {
-        config(['team_ops.loadtest_seed_enabled' => false]);
+        $this->assertSame(0, Artisan::call('loadtest:seed', ['--teams' => 1, '--members' => 4]));
+        $team = Team::firstOrFail();
+        // 試験データのチームに、ふつうのアドレスの利用者が入っていても書き出さない
+        $other = User::factory()->create(['email' => 'coach@example.invalid']);
+        DB::table('team_memberships')->insert(['team_id' => $team->id, 'user_id' => $other->id, 'created_at' => now(), 'updated_at' => now()]);
 
-        $this->expectException(\RuntimeException::class);
-        app(SeedLoadTest::class)->recipients([]);
+        $map = app(ListLoadTestRecipients::class)([$team->id]);
+
+        $this->assertCount(4, $map);
+        $this->assertNotContains($other->id, $map);
+    }
+
+    public function test_AC_008_03_the_recipients_are_not_written_outside_the_test_environment(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+        config(['app.env' => 'production']);
+        $out = sys_get_temp_dir().'/recipients-'.uniqid().'.json';
+
+        $this->assertSame(1, Artisan::call('loadtest:seed', ['--teams' => 1, '--recipients-out' => $out]));
+
+        $this->assertFileDoesNotExist($out);
+        $this->assertSame(0, User::count());
+        $this->expectException(RuntimeException::class);
+        app(ListLoadTestRecipients::class)([]);
     }
 
     public function test_AC_008_02_the_scheduled_notices_are_published_to_every_member_as_usual(): void

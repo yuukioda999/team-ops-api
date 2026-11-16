@@ -9,6 +9,7 @@ use App\Support\NotifyRelay\RelayClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -237,5 +238,60 @@ class DeliverOutboxMessageTest extends TestCase
 
         $this->assertStringNotContainsString('coach@example.invalid', $serialized);
         $this->assertStringNotContainsString('secret-token', $serialized);
+    }
+
+    /**
+     * outbox:redispatch --now が、送っている途中の件と重なったとき(AC-009-12、ADR-0018 の 2026-11-16 追記)。
+     * 先に送っていたジョブA の結果が、あとから予約し直したジョブB の結果を上書きしない。
+     */
+    public function test_AC_009_12_a_job_whose_reservation_was_taken_over_does_not_overwrite_the_final_state(): void
+    {
+        $message = $this->pendingMessage();
+        $calls = 0;
+        Http::fake([self::RELAY_URL => function () use (&$calls) {
+            $calls++;
+            if ($calls === 1) {
+                // ジョブA が notify-relay の応答を待っている間に、運用する人が --now を打つ。
+                // 積まれたジョブB はその場で動き(キューは sync)、受け付けられる
+                $this->assertSame(0, Artisan::call('outbox:redispatch', ['--now' => true]));
+
+                return Http::response(['error' => 'unavailable'], 503); // A には一時的な失敗が返る
+            }
+
+            return Http::response(['delivery_id' => 'dlv_B'], 202);
+        }]);
+
+        $this->runJob($message);
+
+        $this->assertSame(2, $calls);
+        $message->refresh();
+        $this->assertSame(OutboxStatus::Sent, $message->status);
+        $this->assertSame(2, $message->attempts);
+        $this->assertNull($message->last_error);
+        $this->assertSame('dlv_B', $message->delivery_id);
+        $this->assertNull($message->payload);
+    }
+
+    public function test_AC_009_12_a_job_whose_reservation_was_taken_over_does_not_give_up_a_message_already_sent(): void
+    {
+        $message = $this->pendingMessage();
+        $calls = 0;
+        Http::fake([self::RELAY_URL => function () use (&$calls, $message) {
+            $calls++;
+            if ($calls === 1) {
+                $this->assertSame(0, Artisan::call('outbox:redispatch', ['--now' => true]));
+                // B が受け付けられたあと、A には「受け付けない」(再送しない失敗)が返る
+                $this->assertSame(OutboxStatus::Sent, $message->refresh()->status);
+
+                return Http::response(['error' => 'invalid_request'], 422);
+            }
+
+            return Http::response(['delivery_id' => 'dlv_B'], 202);
+        }]);
+
+        $this->runJob($message);
+
+        $this->assertSame(OutboxStatus::Sent, $message->refresh()->status);
+        $this->assertNull($message->last_error);
     }
 }
