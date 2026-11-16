@@ -151,4 +151,33 @@ final class SeedLoadTest
 
         return $teamIds;
     }
+
+    /**
+     * 作ったチームの宛先の、試験用のアドレスと利用者IDの対応(AC-008-02)。障害訓練が、受け取り役が受け取った
+     * 宛先を、API と notify-relay の配信状況と宛先ごとにつなぐのに使う(spec 009 の AC-009-02)。
+     * 試験用のアドレス(loadtest.invalid)だけを返す。
+     *
+     * @param  list<string>  $teamIds
+     * @return array<string, int> 小文字のアドレス => 利用者ID
+     */
+    public function recipients(array $teamIds): array
+    {
+        if (! self::allowed()) {
+            throw new RuntimeException(self::NOT_ALLOWED);
+        }
+        $map = [];
+        foreach (array_chunk($teamIds, 500) as $chunk) {
+            $userIds = DB::table('team_memberships')->whereIn('team_id', $chunk)->pluck('user_id')->all();
+            foreach (array_chunk($userIds, 1000) as $ids) {
+                foreach (DB::table('users')->whereIn('id', $ids)->get(['id', 'email']) as $row) {
+                    $email = strtolower(Crypt::decryptString((string) $row->email));
+                    if (str_ends_with($email, '@'.self::DOMAIN)) {
+                        $map[$email] = (int) $row->id;
+                    }
+                }
+            }
+        }
+
+        return $map;
+    }
 }
