@@ -17,8 +17,14 @@ use Illuminate\Console\Command;
  * - コミットした直後にプロセスが落ちるなどして、最初のジョブが積まれなかった
  * - ジョブが想定外の例外で止まった
  * 同じ件のジョブが重複しても、ジョブ側の予約で送るのは1つだけになる。
+ *
+ * --now:notify-relay を起動し直したあとに、運用する人が手で打つ(spec 009 の AC-009-12)。送り直しの間隔は
+ * 最大30分まで延びるので、まだ時刻の来ていない送信待ちも、すぐ送り直す。送ったもの・失敗したもの(gave_up を
+ * 含む)は対象にしない。このときだけは、送っている途中の件をもう一度送ることがある。notify-relay が重複防止キーで
+ * 受け付けを1回にまとめ(ADR-0002)、アウトボックスの結果は、予約し直したジョブだけが書く(ADR-0018 の
+ * 2026-11-16 追記)。
  */
-#[Signature('outbox:redispatch {--limit=500 : 1回に積む最大件数}')]
+#[Signature('outbox:redispatch {--limit=500 : 1回に積む最大件数} {--now : まだ時刻の来ていない送信待ちも、すぐ送り直す}')]
 #[Description('送信待ちのまま時刻が来たアウトボックスに、送信ジョブを積み直す')]
 final class RedispatchOutbox extends Command
 {
@@ -28,6 +34,13 @@ final class RedispatchOutbox extends Command
     public function handle(): int
     {
         $now = now();
+        if ($this->option('now')) {
+            $moved = OutboxMessage::query()
+                ->where('status', OutboxStatus::Pending)
+                ->where('next_attempt_at', '>', $now)
+                ->update(['next_attempt_at' => $now]);
+            $this->info("Moved {$moved} waiting outbox message(s) to now. Up to --limit are queued below; the rest are queued by the scheduled run every minute.");
+        }
         $ids = OutboxMessage::query()
             ->where('status', OutboxStatus::Pending)
             ->where(function ($q) use ($now) {

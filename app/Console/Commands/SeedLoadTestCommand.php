@@ -3,7 +3,9 @@
 namespace App\Console\Commands;
 
 use App\UseCases\LoadTest\CreateLoadTestSessions;
+use App\UseCases\LoadTest\ListLoadTestRecipients;
 use App\UseCases\LoadTest\SeedLoadTest;
+use ErrorException;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use RuntimeException;
@@ -12,6 +14,7 @@ use RuntimeException;
  * 負荷試験のデータを作る(AC-008-02・03、ADR-0023)。本番の環境では何も作らずに止まる。
  *
  *   php artisan loadtest:seed --teams=10000 --at=2026-11-13T06:00:00Z --sessions=50 --sessions-out=/tmp/sessions.json
+ *   php artisan loadtest:seed --teams=100 --recipients-out=/tmp/recipients.json(障害訓練、spec 009)
  */
 final class SeedLoadTestCommand extends Command
 {
@@ -20,11 +23,12 @@ final class SeedLoadTestCommand extends Command
         {--members=30 : 1チームの人数(代表・役員・コーチ・保護者)}
         {--at= : 予約のお知らせを公開する日時(ISO 8601)。省略すると5分後}
         {--sessions=0 : k6 が使うログイン済みのセッションの数}
-        {--sessions-out= : セッションの Cookie を書き出す JSON のパス}';
+        {--sessions-out= : セッションの Cookie を書き出す JSON のパス}
+        {--recipients-out= : 宛先の試験用のアドレスと利用者IDの対応を書き出す JSON のパス(障害訓練の数え方に使う)}';
 
     protected $description = '負荷試験のチーム・利用者・予約のお知らせを作る(試験の環境だけ。LOADTEST_SEED_ENABLED=true が要る)';
 
-    public function handle(SeedLoadTest $seed, CreateLoadTestSessions $createSessions): int
+    public function handle(SeedLoadTest $seed, CreateLoadTestSessions $createSessions, ListLoadTestRecipients $listRecipients): int
     {
         if (! SeedLoadTest::allowed()) {
             $this->error(SeedLoadTest::NOT_ALLOWED.' Nothing was created.');
@@ -40,6 +44,16 @@ final class SeedLoadTestCommand extends Command
             $this->error('--sessions-out is required with --sessions.');
 
             return self::FAILURE;
+        }
+
+        // 書き出し先は、データを作る前に確かめる(1万チームを作ってから書けないと分かるのを避ける)
+        $recipientsOut = $this->option('recipients-out');
+        foreach (array_filter([is_string($recipientsOut) ? $recipientsOut : null, $sessions > 0 ? $out : null]) as $path) {
+            if (! is_dir(dirname($path)) || ! is_writable(dirname($path))) {
+                $this->error("Cannot write to {$path}. Nothing was created.");
+
+                return self::FAILURE;
+            }
         }
 
         $started = microtime(true);
@@ -58,6 +72,18 @@ final class SeedLoadTestCommand extends Command
         $this->info(sprintf('Created %d teams x %d members and their notices scheduled at %s in %.1f s.', count($ids), $members, $at->toIso8601String(), $seconds));
         // collect.py が結果に入れる(AC-008-02 の作成時間)
         $this->line(sprintf('seed_seconds=%.1f', $seconds));
+
+        if (is_string($recipientsOut)) {
+            $map = $listRecipients($ids);
+            try {
+                file_put_contents($recipientsOut, json_encode($map, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+            } catch (ErrorException) {
+                $this->error("Could not write the recipients to {$recipientsOut}.");
+
+                return self::FAILURE;
+            }
+            $this->info('Wrote '.count($map)." recipients to {$recipientsOut}.");
+        }
 
         if ($sessions > 0) {
             $cookies = $createSessions($ids, $sessions);

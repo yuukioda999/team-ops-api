@@ -8,10 +8,12 @@ use App\Models\OutboxMessage;
 use App\Models\Team;
 use App\Models\TeamMemberRole;
 use App\Models\User;
+use App\UseCases\LoadTest\ListLoadTestRecipients;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use RuntimeException;
 use Tests\TestCase;
 
 final class SeedLoadTestTest extends TestCase
@@ -50,6 +52,59 @@ final class SeedLoadTestTest extends TestCase
         $this->assertStringEndsWith('@loadtest.invalid', $user->email);
         $this->assertTrue(User::whereEmail($user->email)->exists());
         $this->assertStringStartsWith('試験 ', (string) $user->display_name);
+    }
+
+    public function test_AC_008_02_writes_the_test_addresses_and_user_ids_of_the_recipients_when_asked(): void
+    {
+        $out = tempnam(sys_get_temp_dir(), 'recipients');
+
+        $this->assertSame(0, Artisan::call('loadtest:seed', ['--teams' => 2, '--members' => 4, '--recipients-out' => $out]));
+
+        /** @var array<string, int> $map */
+        $map = json_decode((string) file_get_contents($out), true, flags: JSON_THROW_ON_ERROR);
+        unlink($out);
+        $this->assertCount(8, $map);
+        $this->assertEqualsCanonicalizing(User::pluck('id')->all(), array_values($map));
+        foreach ($map as $email => $id) {
+            $this->assertStringEndsWith('@loadtest.invalid', $email);
+            $this->assertSame($email, strtolower(User::findOrFail($id)->email));
+        }
+    }
+
+    public function test_AC_008_02_the_recipients_map_holds_only_test_addresses(): void
+    {
+        $this->assertSame(0, Artisan::call('loadtest:seed', ['--teams' => 1, '--members' => 4]));
+        $team = Team::firstOrFail();
+        // 試験データのチームに、ふつうのアドレスの利用者が入っていても書き出さない
+        $other = User::factory()->create(['email' => 'coach@example.invalid']);
+        DB::table('team_memberships')->insert(['team_id' => $team->id, 'user_id' => $other->id, 'created_at' => now(), 'updated_at' => now()]);
+
+        $map = app(ListLoadTestRecipients::class)([$team->id]);
+
+        $this->assertCount(4, $map);
+        $this->assertNotContains($other->id, $map);
+    }
+
+    public function test_AC_008_03_the_recipients_are_not_written_outside_the_test_environment(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+        config(['app.env' => 'production']);
+        $out = sys_get_temp_dir().'/recipients-'.uniqid().'.json';
+
+        $this->assertSame(1, Artisan::call('loadtest:seed', ['--teams' => 1, '--recipients-out' => $out]));
+
+        $this->assertFileDoesNotExist($out);
+        $this->assertSame(0, User::count());
+        $this->expectException(RuntimeException::class);
+        app(ListLoadTestRecipients::class)([]);
+    }
+
+    public function test_AC_008_02_an_output_path_that_cannot_be_written_stops_before_anything_is_created(): void
+    {
+        $this->assertSame(1, Artisan::call('loadtest:seed', ['--teams' => 1, '--recipients-out' => '/nonexistent-dir/recipients.json']));
+
+        $this->assertSame(0, Team::count());
+        $this->assertSame(0, User::count());
     }
 
     public function test_AC_008_02_the_scheduled_notices_are_published_to_every_member_as_usual(): void

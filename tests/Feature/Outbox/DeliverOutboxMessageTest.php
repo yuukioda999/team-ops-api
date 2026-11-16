@@ -9,6 +9,7 @@ use App\Support\NotifyRelay\RelayClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -237,5 +238,115 @@ class DeliverOutboxMessageTest extends TestCase
 
         $this->assertStringNotContainsString('coach@example.invalid', $serialized);
         $this->assertStringNotContainsString('secret-token', $serialized);
+    }
+
+    /**
+     * outbox:redispatch --now が、送っている途中の件と重なったとき(AC-009-12、ADR-0018 の 2026-11-16 追記)。
+     * 先に送っていたジョブA の結果が、あとから予約し直したジョブB の結果を上書きしない。
+     */
+    public function test_AC_009_12_a_job_whose_reservation_was_taken_over_does_not_overwrite_the_final_state(): void
+    {
+        $message = $this->pendingMessage();
+        $calls = 0;
+        Http::fake([self::RELAY_URL => function () use (&$calls) {
+            $calls++;
+            if ($calls === 1) {
+                // ジョブA が notify-relay の応答を待っている間に、運用する人が --now を打つ。
+                // 積まれたジョブB はその場で動き(キューは sync)、受け付けられる
+                $this->assertSame(0, Artisan::call('outbox:redispatch', ['--now' => true]));
+
+                return Http::response(['error' => 'unavailable'], 503); // A には一時的な失敗が返る
+            }
+
+            return Http::response(['delivery_id' => 'dlv_B'], 202);
+        }]);
+
+        $this->runJob($message);
+
+        $this->assertSame(2, $calls);
+        $message->refresh();
+        $this->assertSame(OutboxStatus::Sent, $message->status);
+        $this->assertSame(2, $message->attempts);
+        $this->assertNull($message->last_error);
+        $this->assertSame('dlv_B', $message->delivery_id);
+        $this->assertNull($message->payload);
+    }
+
+    public function test_AC_009_12_a_job_whose_reservation_was_taken_over_does_not_give_up_a_message_already_sent(): void
+    {
+        $message = $this->pendingMessage();
+        $calls = 0;
+        Http::fake([self::RELAY_URL => function () use (&$calls, $message) {
+            $calls++;
+            if ($calls === 1) {
+                $this->assertSame(0, Artisan::call('outbox:redispatch', ['--now' => true]));
+                // B が受け付けられたあと、A には「受け付けない」(再送しない失敗)が返る
+                $this->assertSame(OutboxStatus::Sent, $message->refresh()->status);
+
+                return Http::response(['error' => 'invalid_request'], 422);
+            }
+
+            return Http::response(['delivery_id' => 'dlv_B'], 202);
+        }]);
+
+        $this->runJob($message);
+
+        $this->assertSame(OutboxStatus::Sent, $message->refresh()->status);
+        $this->assertNull($message->last_error);
+    }
+
+    /**
+     * @return array<string, array{int, array<string, mixed>}>
+     */
+    public static function answersWhileAnotherJobHoldsTheReservation(): array
+    {
+        return [
+            'accepted' => [202, ['delivery_id' => 'dlv_A']],
+            'rejected' => [422, ['error' => 'invalid_request']],
+            'unavailable' => [503, ['error' => 'unavailable']],
+        ];
+    }
+
+    /**
+     * B が予約し直したが、まだ送っている途中に A に答えが返る(AC-009-12)。A は何も書かず、B に任せる。
+     *
+     * @param  array<string, mixed>  $body
+     */
+    #[DataProvider('answersWhileAnotherJobHoldsTheReservation')]
+    public function test_AC_009_12_a_job_that_lost_its_reservation_writes_nothing_while_the_other_job_is_still_sending(int $status, array $body): void
+    {
+        $message = $this->pendingMessage();
+        Http::fake([self::RELAY_URL => function () use ($message, $status, $body) {
+            // --now のあと、B が予約した(attempts が1つ増え、送信待ちのまま)
+            OutboxMessage::whereKey($message->id)->update(['attempts' => 2]);
+
+            return Http::response($body, $status);
+        }]);
+
+        $this->runJob($message);
+
+        $message->refresh();
+        $this->assertSame(OutboxStatus::Pending, $message->status);
+        $this->assertSame(2, $message->attempts);
+        $this->assertNull($message->delivery_id);
+        $this->assertNull($message->last_error);
+        $this->assertNotNull($message->payload);
+    }
+
+    public function test_AC_009_12_a_job_that_lost_its_reservation_does_not_give_up(): void
+    {
+        $message = $this->pendingMessage(['give_up_at' => now()->subMinute()]);
+        // A が予約し、期限切れに気づいて「諦めた」と書く前に、B が予約し直した(--now と重なった)
+        $job = new DeliverOutboxMessage($message->id);
+        $reserved = (new \ReflectionMethod($job, 'reserve'))->invoke($job);
+        $this->assertInstanceOf(OutboxMessage::class, $reserved);
+        OutboxMessage::whereKey($message->id)->update(['attempts' => 2]);
+        $finish = new \ReflectionMethod($job, 'finish');
+
+        $this->assertFalse($finish->invoke($job, $reserved, OutboxStatus::Failed, 'gave_up'));
+
+        $message->refresh();
+        $this->assertSame(OutboxStatus::Pending, $message->status);
+        $this->assertNotNull($message->payload);
     }
 }
