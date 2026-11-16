@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\UseCases\LoadTest\CreateLoadTestSessions;
 use App\UseCases\LoadTest\ListLoadTestRecipients;
 use App\UseCases\LoadTest\SeedLoadTest;
+use ErrorException;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use RuntimeException;
@@ -45,6 +46,16 @@ final class SeedLoadTestCommand extends Command
             return self::FAILURE;
         }
 
+        // 書き出し先は、データを作る前に確かめる(1万チームを作ってから書けないと分かるのを避ける)
+        $recipientsOut = $this->option('recipients-out');
+        foreach (array_filter([is_string($recipientsOut) ? $recipientsOut : null, $sessions > 0 ? $out : null]) as $path) {
+            if (! is_dir(dirname($path)) || ! is_writable(dirname($path))) {
+                $this->error("Cannot write to {$path}. Nothing was created.");
+
+                return self::FAILURE;
+            }
+        }
+
         $started = microtime(true);
         try {
             $ids = $seed($teams, $members, $at, function (int $done) use ($teams): void {
@@ -62,10 +73,11 @@ final class SeedLoadTestCommand extends Command
         // collect.py が結果に入れる(AC-008-02 の作成時間)
         $this->line(sprintf('seed_seconds=%.1f', $seconds));
 
-        $recipientsOut = $this->option('recipients-out');
         if (is_string($recipientsOut)) {
             $map = $listRecipients($ids);
-            if (file_put_contents($recipientsOut, json_encode($map, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)) === false) {
+            try {
+                file_put_contents($recipientsOut, json_encode($map, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+            } catch (ErrorException) {
                 $this->error("Could not write the recipients to {$recipientsOut}.");
 
                 return self::FAILURE;

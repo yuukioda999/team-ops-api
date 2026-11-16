@@ -99,6 +99,14 @@ final class SeedLoadTestTest extends TestCase
         app(ListLoadTestRecipients::class)([]);
     }
 
+    public function test_AC_008_02_an_output_path_that_cannot_be_written_stops_before_anything_is_created(): void
+    {
+        $this->assertSame(1, Artisan::call('loadtest:seed', ['--teams' => 1, '--recipients-out' => '/nonexistent-dir/recipients.json']));
+
+        $this->assertSame(0, Team::count());
+        $this->assertSame(0, User::count());
+    }
+
     public function test_AC_008_02_the_scheduled_notices_are_published_to_every_member_as_usual(): void
     {
         Queue::fake();
