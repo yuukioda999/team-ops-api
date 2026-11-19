@@ -38,6 +38,8 @@ class TraceContextTest extends TestCase
 
     /**
      * traceparent の末尾(フラグ)を除いた部分。フラグは SDK の版で変わりうる
+     *
+     * @return non-empty-string
      */
     private function traceparentPrefixOf(SpanInterface $span): string
     {
