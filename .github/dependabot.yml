@@ -8,6 +8,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # PHP follows the production image (FrankenPHP, php8.4) and CI (8.4); raise all of them together by hand
+      - dependency-name: php
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
