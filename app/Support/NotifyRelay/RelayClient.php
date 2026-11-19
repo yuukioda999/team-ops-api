@@ -2,6 +2,7 @@
 
 namespace App\Support\NotifyRelay;
 
+use App\Support\Telemetry\Tracing;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use RuntimeException;
@@ -60,14 +61,21 @@ final class RelayClient
         $body = json_encode($delivery, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         $timestamp ??= time();
 
+        $headers = [
+            'X-Relay-Key-Id' => $this->keyId,
+            'X-Relay-Timestamp' => (string) $timestamp,
+            'X-Relay-Signature' => self::sign($this->secret, $timestamp, 'POST', self::PATH, $body),
+        ];
+        // notify-relay が受付・送信・webhook を同じトレースにつなぐ(AC-010-02、AC-R001-25)
+        $traceparent = Tracing::currentTraceparent();
+        if ($traceparent !== null) {
+            $headers['traceparent'] = $traceparent;
+        }
+
         try {
             $response = $this->http
                 ->timeout($this->timeoutSeconds)
-                ->withHeaders([
-                    'X-Relay-Key-Id' => $this->keyId,
-                    'X-Relay-Timestamp' => (string) $timestamp,
-                    'X-Relay-Signature' => self::sign($this->secret, $timestamp, 'POST', self::PATH, $body),
-                ])
+                ->withHeaders($headers)
                 // リダイレクトをたどると、宛先とトークンを含む本文を別のホストに送ってしまう
                 ->withoutRedirecting()
                 ->withBody($body, 'application/json')

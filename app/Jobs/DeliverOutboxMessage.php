@@ -5,11 +5,14 @@ namespace App\Jobs;
 use App\Enums\OutboxStatus;
 use App\Models\OutboxMessage;
 use App\Support\NotifyRelay\RelayClient;
+use App\Support\Telemetry\Tracing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
+use OpenTelemetry\API\Trace\SpanInterface;
+use OpenTelemetry\API\Trace\SpanKind;
 use Throwable;
 
 /**
@@ -46,6 +49,19 @@ final class DeliverOutboxMessage implements ShouldQueue
         if ($message === null) {
             return; // 送信済み・失敗済み・まだ時刻が来ていない、または別のジョブが予約した
         }
+
+        // 作ったときのトレースの下で送る。outbox:redispatch で送り直しても同じトレースになる(AC-010-03)
+        Tracing::inSpan(
+            'outbox deliver',
+            $message->traceparent,
+            ['outbox.message_id' => $message->id, 'outbox.kind' => $message->kind, 'outbox.attempt' => $message->attempts],
+            fn (SpanInterface $span) => $this->deliver($relay, $message, $span),
+            SpanKind::KIND_PRODUCER,
+        );
+    }
+
+    private function deliver(RelayClient $relay, OutboxMessage $message, SpanInterface $span): void
+    {
         $context = ['outbox_message_id' => $message->id, 'kind' => $message->kind, 'attempts' => $message->attempts];
 
         if ($message->give_up_at !== null && $message->give_up_at->isPast()) {
@@ -69,6 +85,7 @@ final class DeliverOutboxMessage implements ShouldQueue
 
         $result = $relay->createDelivery($payload);
         $context['reason'] = $result->reason;
+        $span->setAttribute('outbox.result', $result->isAccepted() ? 'accepted' : ($result->shouldRetry() ? 'retry' : 'rejected'));
 
         if ($result->isAccepted()) {
             // 照合で notify-relay に問い合わせるときに使う(ADR-0019)
