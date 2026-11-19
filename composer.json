@@ -13,7 +13,10 @@
         "php": "^8.4",
         "laravel/framework": "^13.17",
         "laravel/sanctum": "^4.3",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "open-telemetry/exporter-otlp": "^1.5",
+        "open-telemetry/opentelemetry-auto-laravel": "^1.10",
+        "open-telemetry/sdk": "^1.16"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -31,7 +34,10 @@
             "App\\": "app/",
             "Database\\Factories\\": "database/factories/",
             "Database\\Seeders\\": "database/seeders/"
-        }
+        },
+        "files": [
+            "bootstrap/telemetry.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {
@@ -89,7 +95,8 @@
         "sort-packages": true,
         "allow-plugins": {
             "pestphp/pest-plugin": true,
-            "php-http/discovery": true
+            "php-http/discovery": true,
+            "tbachert/spi": true
         }
     },
     "minimum-stability": "stable",

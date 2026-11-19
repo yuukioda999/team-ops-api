@@ -27,3 +27,6 @@ Schedule::command('model:prune', ['--model' => [RelayEvent::class]])->daily();
 
 // 作成から24時間を過ぎたデモチームを消す(AC-007-07、ADR-0021)。デモモードでなくても、残っていれば消す
 Schedule::command('demo:prune')->hourly()->withoutOverlapping(30);
+
+// アウトボックスとデモチームの件数をメトリクスとして送る(AC-010-05、spec 010 の判断9)
+Schedule::command('telemetry:report-gauges')->everyMinute()->withoutOverlapping(5);

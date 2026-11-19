@@ -12,6 +12,7 @@
 - 認証:Sanctum(SPA向けCookie認証)、メールのマジックリンク
 - MySQL
 - API仕様:OpenAPI
+- 監視:OpenTelemetry(PHP の拡張と Laravel の自動計装)。送る前に個人情報を伏せ、notify-relay と1本のトレースにつなぐ(team-ops の ADR-0026)。`OTEL_PHP_AUTOLOAD_ENABLED=true` と `OTEL_EXPORTER_OTLP_ENDPOINT` を設定したときだけ送る
 
 ## ライセンス
 

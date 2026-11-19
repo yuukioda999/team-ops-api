@@ -16,7 +16,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: pdo_mysql, intl, zip
+          extensions: pdo_mysql, intl, zip, opentelemetry
           coverage: none
       - run: composer install --no-interaction --prefer-dist
       - run: composer audit
@@ -56,7 +56,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: pdo_mysql, intl, zip
+          extensions: pdo_mysql, intl, zip, opentelemetry
           coverage: none
       - run: composer install --no-interaction --prefer-dist
       - run: cp .env.example .env && php artisan key:generate

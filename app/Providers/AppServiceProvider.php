@@ -20,6 +20,8 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
+use OpenTelemetry\API\Globals;
+use OpenTelemetry\API\Metrics\MeterProviderInterface;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -28,6 +30,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // メトリクスの送り口。OpenTelemetry の SDK が環境変数から作ったもの(ADR-0026)
+        $this->app->bind(MeterProviderInterface::class, fn () => Globals::meterProvider());
+
         $this->app->singleton(
             BlindIndex::class,
             function (Application $app) {

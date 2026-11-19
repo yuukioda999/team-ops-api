@@ -4,6 +4,7 @@ namespace App\Support\NotifyRelay;
 
 use App\Jobs\DeliverOutboxMessage;
 use App\Models\OutboxMessage;
+use App\Support\Telemetry\Tracing;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -67,7 +68,8 @@ final class EmailOutbox
             // 同時に同じキーで呼ばれても、一意制約の例外を呼び出し側に上げない
             $message = OutboxMessage::createOrFirst(
                 ['dedupe_key' => $dedupeKey],
-                ['kind' => $kind, 'payload' => $payload, 'give_up_at' => $giveUpAt],
+                // 作ったときのトレースを残し、送り直しても同じトレースにつなぐ(AC-010-03)
+                ['kind' => $kind, 'payload' => $payload, 'give_up_at' => $giveUpAt, 'traceparent' => Tracing::currentTraceparent()],
             );
 
             if (! $message->wasRecentlyCreated) {

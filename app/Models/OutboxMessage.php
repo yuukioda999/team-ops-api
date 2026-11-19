@@ -28,8 +28,9 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $reconcile_stopped_at
  * @property Carbon|null $last_reconciled_at
  * @property string|null $last_mismatch
+ * @property string|null $traceparent 作ったときのトレース(AC-010-03)
  */
-#[Fillable(['kind', 'dedupe_key', 'payload', 'status', 'next_attempt_at', 'give_up_at'])]
+#[Fillable(['kind', 'dedupe_key', 'payload', 'status', 'next_attempt_at', 'give_up_at', 'traceparent'])]
 #[Hidden(['payload'])]
 class OutboxMessage extends Model
 {
