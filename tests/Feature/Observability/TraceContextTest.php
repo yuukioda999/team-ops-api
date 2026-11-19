@@ -36,11 +36,14 @@ class TraceContextTest extends TestCase
         return $provider->getTracer('test')->spanBuilder('POST /api/teams/{team}/notices/{notice}/publish')->startSpan();
     }
 
-    private function traceparentOf(SpanInterface $span): string
+    /**
+     * traceparent の末尾(フラグ)を除いた部分。フラグは SDK の版で変わりうる
+     */
+    private function traceparentPrefixOf(SpanInterface $span): string
     {
         $c = $span->getContext();
 
-        return '00-'.$c->getTraceId().'-'.$c->getSpanId().'-01';
+        return '00-'.$c->getTraceId().'-'.$c->getSpanId().'-';
     }
 
     private function queueMessage(): OutboxMessage
@@ -60,7 +63,7 @@ class TraceContextTest extends TestCase
             $span->end();
         }
 
-        $this->assertSame($this->traceparentOf($span), $message->refresh()->traceparent);
+        $this->assertStringStartsWith($this->traceparentPrefixOf($span), (string) $message->refresh()->traceparent);
     }
 
     public function test_AC_010_03_every_attempt_including_a_resend_continues_the_same_trace(): void

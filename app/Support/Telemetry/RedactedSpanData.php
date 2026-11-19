@@ -15,6 +15,7 @@ use OpenTelemetry\SDK\Trace\StatusDataInterface;
  */
 final class RedactedSpanData implements SpanDataInterface
 {
+    /** @var AttributesInterface<string, mixed> */
     private readonly AttributesInterface $attributes;
 
     /** @var list<EventInterface> */
@@ -25,7 +26,7 @@ final class RedactedSpanData implements SpanDataInterface
     public function __construct(private readonly SpanDataInterface $span)
     {
         $this->attributes = SpanRedactor::attributes($span->getAttributes());
-        $this->events = SpanRedactor::events(array_values($span->getEvents()));
+        $this->events = SpanRedactor::events($span->getEvents());
         $this->status = SpanRedactor::status($span->getStatus());
     }
 
@@ -74,6 +75,9 @@ final class RedactedSpanData implements SpanDataInterface
         return $this->span->getStartEpochNanos();
     }
 
+    /**
+     * @return AttributesInterface<string, mixed>
+     */
     public function getAttributes(): AttributesInterface
     {
         return $this->attributes;

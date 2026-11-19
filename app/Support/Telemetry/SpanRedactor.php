@@ -2,6 +2,7 @@
 
 namespace App\Support\Telemetry;
 
+use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\SDK\Common\Attribute\Attributes;
 use OpenTelemetry\SDK\Common\Attribute\AttributesInterface;
 use OpenTelemetry\SDK\Trace\Event;
@@ -33,6 +34,10 @@ final class SpanRedactor
 
     public const string MASK = '[redacted]';
 
+    /**
+     * @param  AttributesInterface<string, mixed>  $attributes
+     * @return AttributesInterface<string, mixed>
+     */
     public static function attributes(AttributesInterface $attributes): AttributesInterface
     {
         $kept = [];
@@ -66,7 +71,15 @@ final class SpanRedactor
      */
     public static function status(StatusDataInterface $status): StatusDataInterface
     {
-        return $status->getDescription() === '' ? $status : StatusData::create($status->getCode());
+        if ($status->getDescription() === '') {
+            return $status;
+        }
+
+        return match ($status->getCode()) {
+            StatusCode::STATUS_ERROR => StatusData::error(),
+            StatusCode::STATUS_OK => StatusData::ok(),
+            default => StatusData::unset(),
+        };
     }
 
     private static function isDropped(string $key): bool

@@ -34,6 +34,8 @@ final class Tracing
      *
      * @template T
      *
+     * @param  non-empty-string  $name
+     * @param  SpanKind::KIND_*  $kind
      * @param  array<string, string|int|bool|null>  $attributes
      * @param  callable(SpanInterface): T  $work
      * @return T

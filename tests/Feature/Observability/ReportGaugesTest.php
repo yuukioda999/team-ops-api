@@ -5,6 +5,7 @@ namespace Tests\Feature\Observability;
 use App\Models\OutboxMessage;
 use App\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use OpenTelemetry\API\Metrics\MeterProviderInterface;
 use OpenTelemetry\SDK\Metrics\Data\Gauge;
 use OpenTelemetry\SDK\Metrics\Data\Metric;
@@ -29,7 +30,7 @@ class ReportGaugesTest extends TestCase
         $provider = MeterProvider::builder()->addReader(new ExportingReader($exporter))->build();
         $this->app->instance(MeterProviderInterface::class, $provider);
 
-        $this->artisan('telemetry:report-gauges')->assertSuccessful();
+        $this->assertSame(0, Artisan::call('telemetry:report-gauges'));
 
         $metrics = [];
         foreach ($exporter->collect() as $metric) {
